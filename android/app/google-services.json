@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "286054429599",
+    "firebase_url": "https://songcatcher-fcf35-default-rtdb.firebaseio.com",
+    "project_id": "songcatcher-fcf35",
+    "storage_bucket": "songcatcher-fcf35.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:286054429599:android:eeb340a4701bdce31d83aa",
+        "android_client_info": {
+          "package_name": "com.example.songcatcher"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "286054429599-vojcqf0uv5rao0r4gsitcmcou9i5ft1g.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBadZWtSdXTvUCtx2OKC8j7KfTavhQa8BY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "286054429599-vojcqf0uv5rao0r4gsitcmcou9i5ft1g.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
