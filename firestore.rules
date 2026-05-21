@@ -1,0 +1,134 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ───────────────────────────────────────────────────
+
+    // Check if the request is from a signed-in user
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Check if the requesting user owns the document
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Check if user is the host of a room
+    function isRoomHost(roomId) {
+      return request.auth.uid ==
+        get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId;
+    }
+
+    // Check if user is a player in a room
+    function isPlayerInRoom(roomId) {
+      return exists(
+          /databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid)
+      );
+    }
+
+    // Check if room is still in waiting status
+    function roomIsWaiting(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data.status == 'waiting';
+    }
+
+    // ── Songs ──────────────────────────────────────────────────────────────
+    // Everyone can read songs (needed to load audio + metadata)
+    // Only server / admin can write (via Cloud Functions or Admin SDK)
+
+    match /songs/{songId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // Admin SDK only
+    }
+
+    // ── Rooms ──────────────────────────────────────────────────────────────
+
+    match /rooms/{roomId} {
+
+      // Any signed-in user can read a room (to join or watch)
+      allow read: if isSignedIn();
+
+      // Any signed-in user can create a room
+      allow create: if isSignedIn()
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.status == 'waiting'
+        && request.resource.data.totalRounds is int
+        && request.resource.data.totalRounds >= 3
+        && request.resource.data.totalRounds <= 20;
+
+      // Only the host can update the room (start game, end round, reveal)
+      allow update: if isSignedIn() && isRoomHost(roomId);
+
+      // Nobody can delete rooms from the client
+      allow delete: if false;
+
+      // ── Players subcollection ──────────────────────────────────────────
+
+      match /players/{playerId} {
+
+        // Any player in the room can read all players
+        allow read: if isSignedIn() && isPlayerInRoom(roomId);
+
+        // A user can add themselves as a player if room is waiting
+        allow create: if isSignedIn()
+          && isOwner(playerId)
+          && roomIsWaiting(roomId)
+          && request.resource.data.score == 0
+          && request.resource.data.correctGuesses == 0
+          && request.resource.data.hasGuessedCorrectly == false;
+
+        // Players can only update their own online status
+        // Score updates happen via Cloud Functions or host
+        allow update: if isSignedIn()
+          && (
+          // Player updates their own online status
+            (isOwner(playerId)
+              && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['isOnline']))
+            ||
+            // Host can update any player (score, correctGuesses, etc.)
+              isRoomHost(roomId)
+          );
+
+        allow delete: if false;
+      }
+
+      // ── Guesses subcollection ──────────────────────────────────────────
+
+      match /guesses/{guessId} {
+
+        // Players in room can read all guesses
+        allow read: if isSignedIn() && isPlayerInRoom(roomId);
+
+        // Players can only submit their own guesses
+        allow create: if isSignedIn()
+          && isPlayerInRoom(roomId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.guess is string
+          && request.resource.data.guess.size() > 0
+          && request.resource.data.guess.size() <= 100;
+
+        // Guesses cannot be edited or deleted
+        allow update: if false;
+        allow delete: if false;
+      }
+    }
+
+    // ── Users ──────────────────────────────────────────────────────────────
+    // Optional: store user profile data
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && isOwner(userId);
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if false;
+    }
+
+    // ── Deny everything else ───────────────────────────────────────────────
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service firebase.storage {
+    match /b/{bucket}/o {
+
+        // Song audio files — read by any signed-in user
+        match /songs/{songId}/{fileName} {
+            allow read: if request.auth != null;
+            allow write: if false; // Admin SDK only
+        }
+
+        // Album art — read by any signed-in user
+        match /artwork/{fileName} {
+            allow read: if request.auth != null;
+            allow write: if false;
+        }
+
+        // Deny everything else
+        match /{allPaths=**} {
+            allow read, write: if false;
+        }
+    }
+}

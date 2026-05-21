@@ -1,93 +1,108 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import '../../../providers/auth_provider.dart';
-import '../../../providers/room_provider.dart';
+import '../../../models/player.dart';
 
-class ScoreboardWidget extends ConsumerWidget {
+class ScoreboardWidget extends StatelessWidget {
   final String roomId;
   const ScoreboardWidget({super.key, required this.roomId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final playersAsync = ref.watch(playersProvider(roomId));
-    final currentUser = ref.watch(currentUserProvider);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
-        border: Border(left: BorderSide(color: Colors.white12)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-            alignment: Alignment.center,
-            child: const Text(
-              'Scoreboard',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-                color: Colors.white70,
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(12, 14, 12, 8),
+          child: Row(
+            children: [
+              Text('🏆 ', style: TextStyle(fontSize: 14)),
+              Text(
+                'Scores',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
-            ),
+            ],
           ),
-          const Divider(height: 1),
-          Expanded(
-            child: playersAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('$e')),
-              data: (players) => ListView.builder(
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('rooms')
+                .doc(roomId)
+                .collection('players')
+                .orderBy('score', descending: true)
+                .snapshots(),
+            builder: (_, snap) {
+              if (!snap.hasData) {
+                return const Center(
+                    child: CircularProgressIndicator());
+              }
+
+              final players = snap.data!.docs
+                  .map((d) => Player.fromMap(
+                  d.id, d.data() as Map<String, dynamic>))
+                  .toList();
+
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 6),
                 itemCount: players.length,
-                itemBuilder: (context, i) {
+                itemBuilder: (_, i) {
                   final p = players[i];
-                  final isMe = p.id == currentUser?.uid;
-                  final medals = ['🥇', '🥈', '🥉'];
+                  final medal = i == 0
+                      ? '🥇'
+                      : i == 1
+                      ? '🥈'
+                      : i == 2
+                      ? '🥉'
+                      : '  ${i + 1}';
 
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: isMe
-                          ? Colors.purpleAccent.withOpacity(0.15)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isMe
-                            ? Colors.purpleAccent.withOpacity(0.4)
-                            : Colors.transparent,
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 3),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: i == 0
+                            ? Colors.amber.withOpacity(0.08)
+                            : Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(medal,
+                              style: const TextStyle(
+                                  fontSize: 14)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              p.displayName,
+                              style: const TextStyle(
+                                  fontSize: 12),
+                              overflow:
+                              TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text(
+                            '${p.score}',
+                            style: const TextStyle(
+                              color: Colors.purpleAccent,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    child: ListTile(
-                      dense: true,
-                      leading: Text(
-                        i < 3 ? medals[i] : '${i + 1}.',
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      title: Text(
-                        p.displayName,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-                          color: isMe ? Colors.purpleAccent : Colors.white,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: Text(
-                        '${p.score}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: p.hasGuessedCorrectly ? Colors.green : Colors.white70,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ).animate(key: ValueKey(p.id)).fadeIn(delay: (i * 50).ms);
+                  );
                 },
-              ),
-            ),
+              );
+            },
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

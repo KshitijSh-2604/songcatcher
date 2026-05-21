@@ -12,21 +12,32 @@ class SplashScreen extends ConsumerStatefulWidget {
 
 class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnim;
-  late Animation<double> _scaleAnim;
+  late final AnimationController _controller;
+  late final Animation<double> _fadeAnim;
+  late final Animation<double> _scaleAnim;
+  late final Animation<double> _slideAnim;
 
   @override
   void initState() {
     super.initState();
+
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 900),
     );
+
     _fadeAnim = CurvedAnimation(
-        parent: _controller, curve: Curves.easeIn);
-    _scaleAnim = Tween<double>(begin: 0.85, end: 1.0).animate(
-        CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
+      parent: _controller,
+      curve: Curves.easeIn,
+    );
+
+    _scaleAnim = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+
+    _slideAnim = Tween<double>(begin: 20, end: 0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
 
     _controller.forward();
     _navigate();
@@ -39,7 +50,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<void> _navigate() async {
-    await Future.delayed(const Duration(milliseconds: 2200));
+    await Future.delayed(const Duration(milliseconds: 2400));
     if (!mounted) return;
     final user = ref.read(currentUserProvider);
     context.go(user != null ? '/home' : '/login');
@@ -49,43 +60,89 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: Center(
-        child: FadeTransition(
-          opacity: _fadeAnim,
-          child: ScaleTransition(
-            scale: _scaleAnim,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('🎵', style: TextStyle(fontSize: 80)),
-                const SizedBox(height: 16),
-                Text(
-                  'SongCatcher',
-                  style: Theme.of(context)
-                      .textTheme
-                      .displayMedium
-                      ?.copyWith(
-                    color: Colors.purpleAccent,
-                    fontWeight: FontWeight.w900,
-                  ),
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (_, __) => FadeTransition(
+            opacity: _fadeAnim,
+            child: Transform.scale(
+              scale: _scaleAnim.value,
+              child: Transform.translate(
+                offset: Offset(0, _slideAnim.value),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Logo emoji with glow
+                    Container(
+                      width: 100,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.purpleAccent.withOpacity(0.15),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.purpleAccent.withOpacity(0.3),
+                            blurRadius: 40,
+                            spreadRadius: 10,
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '🎵',
+                          style: TextStyle(fontSize: 52),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // App name
+                    Text(
+                      'SongCatcher',
+                      style: Theme.of(context)
+                          .textTheme
+                          .displaySmall
+                          ?.copyWith(
+                        color: Colors.purpleAccent,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+
+                    // Tagline
+                    const Text(
+                      'Catch the song before anyone else!',
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 13,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+
+                    // Domain
+                    const Text(
+                      'songcatcher.io',
+                      style: TextStyle(
+                        color: Colors.white24,
+                        fontSize: 11,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                    const SizedBox(height: 64),
+
+                    // Loading indicator
+                    const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        color: Colors.purpleAccent,
+                        strokeWidth: 2.5,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 6),
-                const Text(
-                  'songcatcher.io',
-                  style: TextStyle(
-                      color: Colors.white38,
-                      fontSize: 14,
-                      letterSpacing: 1.5),
-                ),
-                const SizedBox(height: 56),
-                const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    color: Colors.purpleAccent,
-                    strokeWidth: 2.5,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),

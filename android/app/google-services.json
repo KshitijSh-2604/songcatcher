@@ -30,6 +30,13 @@
             {
               "client_id": "286054429599-vojcqf0uv5rao0r4gsitcmcou9i5ft1g.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "286054429599-k5jg7935bugrucnd35g9k3b2mmjn383c.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.songcatcher"
+              }
             }
           ]
         }

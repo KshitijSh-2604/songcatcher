@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import '../../../models/room.dart';
 import '../../../services/game_service.dart';
 
@@ -22,55 +22,55 @@ class GuessInputWidget extends StatefulWidget {
 }
 
 class _GuessInputWidgetState extends State<GuessInputWidget> {
-  final _controller = TextEditingController();
-  bool _hasGuessedCorrectly = false;
+  final _ctrl = TextEditingController();
+  final _focusNode = FocusNode();
+  bool _guessedCorrectly = false;
   bool _submitting = false;
 
   @override
   void initState() {
     super.initState();
-    _checkIfAlreadyGuessed();
+    _checkAlreadyGuessed();
   }
 
   @override
   void didUpdateWidget(GuessInputWidget old) {
     super.didUpdateWidget(old);
-    // Reset when round changes
+    // Reset on new round
     if (old.room.currentRound != widget.room.currentRound ||
         old.room.currentSongId != widget.room.currentSongId) {
-      setState(() => _hasGuessedCorrectly = false);
-      _controller.clear();
-      _checkIfAlreadyGuessed();
+      setState(() => _guessedCorrectly = false);
+      _ctrl.clear();
+      _checkAlreadyGuessed();
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _ctrl.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
-  Future<void> _checkIfAlreadyGuessed() async {
+  Future<void> _checkAlreadyGuessed() async {
     final doc = await FirebaseFirestore.instance
         .collection('rooms')
         .doc(widget.roomId)
         .collection('players')
         .doc(widget.userId)
         .get();
-
-    if (doc.exists && mounted) {
-      final data = doc.data()!;
-      setState(
-              () => _hasGuessedCorrectly = data['hasGuessedCorrectly'] ?? false);
+    if (mounted && doc.exists) {
+      setState(() => _guessedCorrectly =
+          doc.data()?['hasGuessedCorrectly'] ?? false);
     }
   }
 
   Future<void> _submitGuess() async {
-    final guess = _controller.text.trim();
-    if (guess.isEmpty || _submitting) return;
+    final guess = _ctrl.text.trim();
+    if (guess.isEmpty || _submitting || _guessedCorrectly) return;
 
     setState(() => _submitting = true);
-    _controller.clear();
+    _ctrl.clear();
 
     try {
       final correct = await widget.gameService.submitGuess(
@@ -80,41 +80,54 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
       );
 
       if (correct && mounted) {
-        setState(() => _hasGuessedCorrectly = true);
+        setState(() => _guessedCorrectly = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(
               children: [
                 Text('🎉 '),
-                Text('Correct! Great catch!',
-                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  'You caught it!',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ],
             ),
             backgroundColor: Colors.green.shade700,
             duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
+      _focusNode.requestFocus();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_hasGuessedCorrectly) {
+    if (_guessedCorrectly) {
       return Container(
-        padding: const EdgeInsets.all(16),
-        color: Colors.green.withOpacity(0.1),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.green.withOpacity(0.1),
+          border: Border(
+              top: BorderSide(
+                  color: Colors.green.withOpacity(0.3))),
+        ),
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle, color: Colors.greenAccent),
-            SizedBox(width: 8),
+            Icon(Icons.check_circle_rounded,
+                color: Colors.greenAccent, size: 20),
+            SizedBox(width: 10),
             Text(
               'You caught it! Waiting for others...',
               style: TextStyle(
-                  color: Colors.greenAccent, fontWeight: FontWeight.w600),
+                color: Colors.greenAccent,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -122,27 +135,27 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
     }
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
-        border: Border(top: BorderSide(color: Colors.white12)),
+        color: Colors.white.withOpacity(0.03),
+        border: const Border(top: BorderSide(color: Colors.white12)),
       ),
       child: Row(
         children: [
           Expanded(
             child: TextField(
-              controller: _controller,
+              controller: _ctrl,
+              focusNode: _focusNode,
               enabled: !_submitting,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _submitGuess(),
               decoration: InputDecoration(
-                hintText: 'Type song or artist name...',
+                hintText: 'Song title or artist name...',
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24)),
+                  borderRadius: BorderRadius.circular(24),
+                ),
                 contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 12),
-                filled: true,
-                fillColor: Colors.white.withOpacity(0.06),
+                    horizontal: 18, vertical: 12),
               ),
             ),
           ),
@@ -160,7 +173,7 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
                 height: 18,
                 child: CircularProgressIndicator(
                     strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.send),
+                : const Icon(Icons.send_rounded, size: 20),
           ),
         ],
       ),

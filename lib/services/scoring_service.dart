@@ -1,32 +1,83 @@
+import 'dart:math';
+
 class ScoringService {
-  static const int basePoints = 1000;
-  static const int minPoints = 200;
-  static const int perGuesserPenalty = 100;
-  static const int speedBonus = 200;
+  static const _baseScore      = 1000;
+  static const _firstBonus     = 500;
+  static const _speedMaxBonus  = 300;
+  static const _minScore       = 50;
 
-  /// [correctGuessersCount] = how many players already guessed correctly
-  /// [revealedSeconds] = which clip length was playing (3, 5, 10)
-  static int calculatePoints({
-    required int correctGuessersCount,
+  // ── Score calculation (was in Cloud Function) ────────────────────────────
+
+  int calculatePoints({
     required int revealedSeconds,
+    required int elapsedMs,
+    required bool isFirstCorrect,
   }) {
-    // Base deduction per person who already got it
-    int points = basePoints - (correctGuessersCount * perGuesserPenalty);
-    points = points.clamp(minPoints, basePoints);
+    final penalty = _clipPenalty(revealedSeconds);
+    final speed   = _speedBonus(elapsedMs);
 
-    // Multiplier by clip length
-    double multiplier = switch (revealedSeconds) {
-      3 => 1.0,
-      5 => 0.7,
-      10 => 0.4,
-      _ => 0.4,
-    };
+    int points = _baseScore - penalty + speed;
+    if (isFirstCorrect) points += _firstBonus;
+    return points.clamp(_minScore, 2000);
+  }
 
-    points = (points * multiplier).round();
+  int _clipPenalty(int seconds) {
+    if (seconds <= 3) return 0;
+    if (seconds <= 5) return 200;
+    return 400;
+  }
 
-    // Speed bonus for 3s clip
-    if (revealedSeconds == 3) points += speedBonus;
+  int _speedBonus(int elapsedMs) {
+    final ratio = (1 - (elapsedMs - 3000) / 12000).clamp(0.0, 1.0);
+    return (ratio * _speedMaxBonus).round();
+  }
 
-    return points;
+  // ── Fuzzy guess matching ─────────────────────────────────────────────────
+
+  bool isCorrectGuess({
+    required String guess,
+    required String title,
+    required String artist,
+  }) {
+    final g = _normalize(guess);
+    final t = _normalize(title);
+    final a = _normalize(artist);
+
+    if (g.isEmpty) return false;
+
+    // Exact match on title or artist
+    if (g == t || g == a) return true;
+
+    // Title contains guess or vice versa
+    if (t.contains(g) || g.contains(t)) return true;
+
+    // Fuzzy: Levenshtein distance on title
+    if (g.length >= 4 && _levenshtein(g, t) <= 2) return true;
+
+    // Fuzzy: Levenshtein on first artist name
+    final firstArtist = a.split(',').first.trim();
+    if (g.length >= 4 && _levenshtein(g, firstArtist) <= 2) return true;
+
+    return false;
+  }
+
+  String _normalize(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r"[^a-z0-9\s]"), '').trim();
+
+  int _levenshtein(String a, String b) {
+    if (a == b) return 0;
+    if (a.isEmpty) return b.length;
+    if (b.isEmpty) return a.length;
+    final d = List.generate(
+        a.length + 1, (i) => List.generate(b.length + 1, (j) => j == 0 ? i : 0));
+    for (var j = 1; j <= b.length; j++) d[0][j] = j;
+    for (var i = 1; i <= a.length; i++) {
+      for (var j = 1; j <= b.length; j++) {
+        d[i][j] = a[i - 1] == b[j - 1]
+            ? d[i - 1][j - 1]
+            : 1 + [d[i - 1][j], d[i][j - 1], d[i - 1][j - 1]].reduce(min);
+      }
+    }
+    return d[a.length][b.length];
   }
 }

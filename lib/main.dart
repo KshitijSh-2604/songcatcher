@@ -9,13 +9,7 @@ import 'theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Portrait-only on phones; allow all orientations on tablets/web
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-
-  // Dark system UI overlay
+  // Status bar + nav bar styling
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -25,11 +19,22 @@ void main() async {
     ),
   );
 
+  // Portrait lock on mobile
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
+  // Firebase init
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  runApp(const ProviderScope(child: SongCatcherApp()));
+  runApp(
+    const ProviderScope(
+      child: SongCatcherApp(),
+    ),
+  );
 }
 
 class SongCatcherApp extends ConsumerWidget {

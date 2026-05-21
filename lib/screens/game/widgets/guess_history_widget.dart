@@ -20,59 +20,76 @@ class GuessHistoryWidget extends StatelessWidget {
           .collection('guesses')
           .where('userId', isEqualTo: userId)
           .orderBy('timestamp', descending: true)
-          .limit(10)
+          .limit(15)
           .snapshots(),
       builder: (_, snap) {
         if (!snap.hasData || snap.data!.docs.isEmpty) {
           return const Center(
-            child: Text(
-              'Your guesses will appear here',
-              style: TextStyle(color: Colors.white38),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('🎧',
+                    style: TextStyle(fontSize: 32)),
+                SizedBox(height: 8),
+                Text(
+                  'Play the clip and start guessing!',
+                  style: TextStyle(
+                      color: Colors.white38, fontSize: 13),
+                ),
+              ],
             ),
           );
         }
 
-        final guesses = snap.data!.docs;
+        final docs = snap.data!.docs;
         return ListView.builder(
           reverse: true,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          itemCount: guesses.length,
+          padding: const EdgeInsets.symmetric(
+              horizontal: 14, vertical: 10),
+          itemCount: docs.length,
           itemBuilder: (_, i) {
-            final data = guesses[i].data() as Map<String, dynamic>;
+            final data =
+            docs[i].data() as Map<String, dynamic>;
             final guess = data['guess'] as String? ?? '';
             final correct = data['correct'] as bool? ?? false;
 
-            return Container(
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: correct
-                    ? Colors.green.withOpacity(0.15)
-                    : Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: correct
-                      ? Colors.green.withOpacity(0.4)
-                      : Colors.white12,
-                ),
-              ),
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
               child: Row(
                 children: [
                   Icon(
-                    correct ? Icons.check_circle : Icons.cancel,
-                    color: correct ? Colors.greenAccent : Colors.redAccent,
-                    size: 16,
+                    correct
+                        ? Icons.check_circle_rounded
+                        : Icons.cancel_rounded,
+                    color: correct
+                        ? Colors.greenAccent
+                        : Colors.redAccent.withOpacity(0.7),
+                    size: 18,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      guess,
-                      style: TextStyle(
-                        color: correct ? Colors.greenAccent : Colors.white70,
-                        decoration: correct
-                            ? TextDecoration.none
-                            : TextDecoration.none,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: correct
+                            ? Colors.green.withOpacity(0.12)
+                            : Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: correct
+                              ? Colors.green.withOpacity(0.3)
+                              : Colors.white12,
+                        ),
+                      ),
+                      child: Text(
+                        guess,
+                        style: TextStyle(
+                          color: correct
+                              ? Colors.greenAccent
+                              : Colors.white60,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                   ),

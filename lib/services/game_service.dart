@@ -1,18 +1,22 @@
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:uuid/uuid.dart';
 import '../models/room.dart';
+import '../models/player.dart';
 import 'scoring_service.dart';
 
 class GameService {
   final _db = FirebaseFirestore.instance;
-  final _uuid = const Uuid();
+  final _scoring = ScoringService();
+  final _rand = Random();
 
-  // ── Room Management ────────────────────────────────────────────────────────
+  // ── Create room ──────────────────────────────────────────────────────────
 
   Future<String> createRoom({
     required String hostId,
     required String hostName,
-    int totalRounds = 5,
+    int totalRounds = 10,
+    String? language,
+    String? genre,
   }) async {
     final code = _generateCode();
     final ref = _db.collection('rooms').doc();
@@ -24,20 +28,27 @@ class GameService {
       'currentRound': 0,
       'totalRounds': totalRounds,
       'currentSongId': null,
-      'roundStartTime': null,
       'revealedSeconds': 3,
+      'roundStartedAt': null,
+      'language': language,
+      'genre': genre,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
+    // Add host as first player
     await ref.collection('players').doc(hostId).set({
       'displayName': hostName,
       'score': 0,
-      'isReady': false,
+      'correctGuesses': 0,
       'hasGuessedCorrectly': false,
+      'isOnline': true,
+      'joinedAt': FieldValue.serverTimestamp(),
     });
 
     return ref.id;
   }
+
+  // ── Join room ────────────────────────────────────────────────────────────
 
   Future<String?> joinRoom({
     required String code,
@@ -54,6 +65,7 @@ class GameService {
     if (snap.docs.isEmpty) return null;
 
     final roomId = snap.docs.first.id;
+
     await _db
         .collection('rooms')
         .doc(roomId)
@@ -62,43 +74,102 @@ class GameService {
         .set({
       'displayName': displayName,
       'score': 0,
-      'isReady': false,
+      'correctGuesses': 0,
       'hasGuessedCorrectly': false,
+      'isOnline': true,
+      'joinedAt': FieldValue.serverTimestamp(),
     });
 
     return roomId;
   }
 
-  // ── Round Management ───────────────────────────────────────────────────────
+  // ── Start game (host only) ───────────────────────────────────────────────
 
   Future<void> startGame(String roomId) async {
-    await _nextRound(roomId, roundNumber: 1);
-    await _db.collection('rooms').doc(roomId).update({'status': 'playing'});
+    final songId = await _pickRandomSong(roomId);
+    if (songId == null) throw Exception('No songs found. Please seed the song library first.');
+
+    await _db.collection('rooms').doc(roomId).update({
+      'status': 'playing',
+      'currentRound': 1,
+      'currentSongId': songId,
+      'revealedSeconds': 3,
+      'roundStartedAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  Future<void> _nextRound(String roomId, {required int roundNumber}) async {
-    final song = await _pickRandomSong();
-    await _db.collection('rooms').doc(roomId).update({
-      'currentRound': roundNumber,
-      'currentSongId': song.id,
-      'roundStartTime': FieldValue.serverTimestamp(),
-      'revealedSeconds': 3, // always start at 3s
-    });
+  // ── Submit guess ─────────────────────────────────────────────────────────
 
-    // Reset all players' hasGuessedCorrectly
-    final players = await _db
+  Future<bool> submitGuess({
+    required String roomId,
+    required String userId,
+    required String guess,
+  }) async {
+    final roomDoc = await _db.collection('rooms').doc(roomId).get();
+    final room = Room.fromMap(roomDoc.id, roomDoc.data()!);
+    if (room.currentSongId == null) return false;
+
+    final songDoc = await _db.collection('songs').doc(room.currentSongId).get();
+    final songData = songDoc.data()!;
+    final title = songData['title'] as String;
+    final artist = songData['artist'] as String;
+
+    final correct = _scoring.isCorrectGuess(
+      guess: guess,
+      title: title,
+      artist: artist,
+    );
+
+    // Write the guess to Firestore
+    await _db
         .collection('rooms')
         .doc(roomId)
-        .collection('players')
-        .get();
-    final batch = _db.batch();
-    for (final p in players.docs) {
-      batch.update(p.reference, {'hasGuessedCorrectly': false});
+        .collection('guesses')
+        .add({
+      'userId': userId,
+      'guess': guess,
+      'correct': correct,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    if (correct) {
+      // Check if first correct guesser
+      final correctSnap = await _db
+          .collection('rooms')
+          .doc(roomId)
+          .collection('players')
+          .where('hasGuessedCorrectly', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      final isFirst = correctSnap.docs.isEmpty;
+      final now = DateTime.now();
+      final roundStart = room.roundStartedAt?.toDate() ?? now;
+      final elapsedMs = now.difference(roundStart).inMilliseconds.abs();
+
+      final points = _scoring.calculatePoints(
+        revealedSeconds: room.revealedSeconds,
+        elapsedMs: elapsedMs,
+        isFirstCorrect: isFirst,
+      );
+
+      // Award score
+      await _db
+          .collection('rooms')
+          .doc(roomId)
+          .collection('players')
+          .doc(userId)
+          .update({
+        'score': FieldValue.increment(points),
+        'correctGuesses': FieldValue.increment(1),
+        'hasGuessedCorrectly': true,
+      });
     }
-    await batch.commit();
+
+    return correct;
   }
 
-  // ── Clip Reveal (host triggers) ────────────────────────────────────────────
+  // ── Reveal more of the clip (host only) ──────────────────────────────────
 
   Future<void> revealMoreClip(String roomId, int seconds) async {
     await _db.collection('rooms').doc(roomId).update({
@@ -106,125 +177,68 @@ class GameService {
     });
   }
 
-  // ── Guessing ───────────────────────────────────────────────────────────────
-
-  Future<bool> submitGuess({
-    required String roomId,
-    required String userId,
-    required String guessText,
-    required String correctTitle,
-    required String correctArtist,
-    required int revealedSeconds,
-  }) async {
-    final isCorrect = _isCorrectGuess(guessText, correctTitle, correctArtist);
-
-    // Save guess
-    await _db
-        .collection('rooms')
-        .doc(roomId)
-        .collection('guesses')
-        .doc(userId)
-        .collection('attempts')
-        .doc(_uuid.v4())
-        .set({
-      'text': guessText,
-      'isCorrect': isCorrect,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-
-    if (isCorrect) {
-      // Count how many already guessed correctly
-      final playersSnap = await _db
-          .collection('rooms')
-          .doc(roomId)
-          .collection('players')
-          .where('hasGuessedCorrectly', isEqualTo: true)
-          .get();
-
-      final points = ScoringService.calculatePoints(
-        correctGuessersCount: playersSnap.docs.length,
-        revealedSeconds: revealedSeconds,
-      );
-
-      // Update player score
-      await _db
-          .collection('rooms')
-          .doc(roomId)
-          .collection('players')
-          .doc(userId)
-          .update({
-        'hasGuessedCorrectly': true,
-        'score': FieldValue.increment(points),
-      });
-    }
-
-    return isCorrect;
-  }
-
-  bool _isCorrectGuess(String guess, String title, String artist) {
-    final g = _normalize(guess);
-    final t = _normalize(title);
-    final a = _normalize(artist);
-    // Accept: exact title match, or "artist - title", or title contains guess
-    return g == t ||
-        g == '$a $t' ||
-        g.contains(t) ||
-        t.contains(g) ||
-        _levenshteinSimilar(g, t);
-  }
-
-  String _normalize(String s) =>
-      s.toLowerCase().replaceAll(RegExp(r"[^a-z0-9\s]"), '').trim();
-
-  bool _levenshteinSimilar(String a, String b) {
-    if (a.isEmpty || b.isEmpty) return false;
-    // Allow 1 typo per 5 characters
-    final maxDist = (b.length / 5).floor().clamp(1, 3);
-    return _levenshtein(a, b) <= maxDist;
-  }
-
-  int _levenshtein(String a, String b) {
-    final m = a.length, n = b.length;
-    final dp = List.generate(m + 1, (i) => List.filled(n + 1, 0));
-    for (int i = 0; i <= m; i++) dp[i][0] = i;
-    for (int j = 0; j <= n; j++) dp[0][j] = j;
-    for (int i = 1; i <= m; i++) {
-      for (int j = 1; j <= n; j++) {
-        dp[i][j] = a[i - 1] == b[j - 1]
-            ? dp[i - 1][j - 1]
-            : 1 + [dp[i-1][j], dp[i][j-1], dp[i-1][j-1]].reduce((a,b) => a < b ? a : b);
-      }
-    }
-    return dp[m][n];
-  }
-
-  // Add inside GameService class in game_service.dart
-  Future<void> updateRounds(String roomId, int rounds) async {
-    await _db.collection('rooms').doc(roomId).update({'totalRounds': rounds});
-  }
+  // ── End round + advance (host only) ─────────────────────────────────────
 
   Future<void> endRound(String roomId, Room room) async {
     if (room.currentRound >= room.totalRounds) {
-      await _db.collection('rooms').doc(roomId).update({'status': 'finished'});
-    } else {
-      await _nextRound(roomId, roundNumber: room.currentRound + 1);
+      // Game over
+      await _db.collection('rooms').doc(roomId).update({
+        'status': 'finished',
+      });
+      return;
     }
+
+    // Pick next song
+    final nextSongId = await _pickRandomSong(roomId);
+
+    // Reset all players' hasGuessedCorrectly
+    final playersSnap = await _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('players')
+        .get();
+
+    final batch = _db.batch();
+    for (final doc in playersSnap.docs) {
+      batch.update(doc.reference, {'hasGuessedCorrectly': false});
+    }
+    await batch.commit();
+
+    // Advance round
+    await _db.collection('rooms').doc(roomId).update({
+      'currentRound': room.currentRound + 1,
+      'currentSongId': nextSongId,
+      'revealedSeconds': 3,
+      'roundStartedAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  // ── Songs ──────────────────────────────────────────────────────────────────
+  // ── Pick a random song from Firestore ────────────────────────────────────
 
-  Future<({String id, Map<String, dynamic> data})> _pickRandomSong() async {
-    final snap = await _db.collection('songs').get();
-    final docs = snap.docs..shuffle();
-    final doc = docs.first;
-    return (id: doc.id, data: doc.data());
+  Future<String?> _pickRandomSong(String roomId) async {
+    // Get room to check language/genre filters
+    final roomDoc = await _db.collection('rooms').doc(roomId).get();
+    final data = roomDoc.data()!;
+    final language = data['language'] as String?;
+    final genre = data['genre'] as String?;
+
+    Query query = _db.collection('songs');
+    if (language != null) query = query.where('language', isEqualTo: language);
+    if (genre != null) query = query.where('genre', isEqualTo: genre);
+
+    // Get already-played song IDs this game to avoid repeats
+    // (use a simple random approach — get up to 200 songs, pick one)
+    final snap = await query.limit(200).get();
+    if (snap.docs.isEmpty) return null;
+
+    final randomIndex = _rand.nextInt(snap.docs.length);
+    return snap.docs[randomIndex].id;
   }
+
+  // ── Generate 6-char room code ────────────────────────────────────────────
 
   String _generateCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final rand = List.generate(6, (_) {
-      return chars[DateTime.now().microsecondsSinceEpoch % chars.length];
-    });
-    return rand.join();
+    return List.generate(6, (_) => chars[_rand.nextInt(chars.length)]).join();
   }
 }

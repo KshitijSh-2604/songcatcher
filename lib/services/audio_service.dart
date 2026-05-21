@@ -1,28 +1,51 @@
+import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 
 class SongAudioService {
   final _player = AudioPlayer();
-  Duration? _songDuration;
+  int _silenceOffset = 0;
 
-  Future<void> loadSong(String url) async {
-    await _player.setUrl(url);
-    _songDuration = _player.duration;
+  Future<void> loadSong(String audioUrl, {int silenceOffset = 0}) async {
+    _silenceOffset = silenceOffset;
+
+    // Configure audio session
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.music());
+
+    await _player.setUrl(audioUrl);
   }
 
-  /// Play only [seconds] seconds from the start
+  /// Plays only [seconds] worth of audio starting past silence offset
   Future<void> playClip(int seconds) async {
-    await _player.seek(Duration.zero);
+    final start = Duration(seconds: _silenceOffset);
+    final end = Duration(seconds: _silenceOffset + seconds);
+
+    await _player.seek(start);
     await _player.play();
 
-    await Future.delayed(Duration(seconds: seconds), () async {
-      await _player.pause();
-    });
+    // Stop after clip duration
+    await Future.delayed(end - start);
+    if (_player.playing) await _player.stop();
   }
 
-  Future<void> dispose() async {
-    await _player.dispose();
+  /// Play full song from silence offset at given volume (for reveal screens)
+  Future<void> playFullAtVolume(double volume) async {
+    await _player.setVolume(volume);
+    await _player.seek(Duration(seconds: _silenceOffset));
+    await _player.play();
   }
 
-  Stream<Duration> get positionStream => _player.positionStream;
+  Future<void> stop() async {
+    await _player.stop();
+  }
+
+  Future<void> pause() async {
+    await _player.pause();
+  }
+
   bool get isPlaying => _player.playing;
+
+  void dispose() {
+    _player.dispose();
+  }
 }

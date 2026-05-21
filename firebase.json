@@ -1,1 +1,17 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"songcatcher-fcf35","appId":"1:286054429599:android:eeb340a4701bdce31d83aa","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"songcatcher-fcf35","configurations":{"android":"1:286054429599:android:eeb340a4701bdce31d83aa","ios":"1:286054429599:ios:adf6c53313de2c281d83aa","web":"1:286054429599:web:d6175a31a341ac7b1d83aa"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "headers": [
+      {
+        "source": "**/*.@(js|css)",
+        "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }]
+      }
+    ]
+  }
+}

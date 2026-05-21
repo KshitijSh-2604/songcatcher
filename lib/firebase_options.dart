@@ -76,4 +76,5 @@ class DefaultFirebaseOptions {
     iosClientId: '286054429599-k5jg7935bugrucnd35g9k3b2mmjn383c.apps.googleusercontent.com',
     iosBundleId: 'com.example.songcatcher',
   );
+
 }
