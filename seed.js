@@ -1,9 +1,9 @@
 const https = require('https');
 
-const SPOTIFY_CLIENT_ID     = '5ec8722467b34dbcb930dc5f6dd18701';
-const SPOTIFY_CLIENT_SECRET = '430f44cac0834e8a9811e04fbd0efca8';
+const SPOTIFY_CLIENT_ID     = 'SPOTIFY_CLIENT_ID';
+const SPOTIFY_CLIENT_SECRET = 'SPOTIFY_CLIENT_SECRET';
 const FIREBASE_PROJECT_ID   = 'songcatcher-fcf35';
-const FIREBASE_API_KEY      = 'AIzaSyAdhNwqnOHEu7zl0DI1ga6hOnczhCoo0co';
+const FIREBASE_API_KEY      = 'FIREBASE_API_KEY';
 
 // ── Simple keyword searches — no genre: filter (deprecated by Spotify 2024) ─
 const SEARCHES = [
