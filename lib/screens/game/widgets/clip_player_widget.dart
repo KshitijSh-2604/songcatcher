@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/room.dart';
 import '../../../models/song.dart';
 import '../../../services/audio_service.dart';
@@ -51,7 +50,10 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
   @override
   void didUpdateWidget(ClipPlayerWidget old) {
     super.didUpdateWidget(old);
-    if (old.room.currentSongId != widget.room.currentSongId) {
+    // Compare by spotifyId so we only reload when the actual song changes
+    final oldId = old.room.currentSong?['spotifyId'];
+    final newId = widget.room.currentSong?['spotifyId'];
+    if (oldId != newId) {
       setState(() => _song = null);
       _loadSong();
     }
@@ -64,21 +66,15 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
   }
 
   Future<void> _loadSong() async {
-    final songId = widget.room.currentSongId;
-    if (songId == null) return;
-
+    final songData = widget.room.currentSong;  // Map<String, dynamic>?
+    if (songData == null) return;
     setState(() => _loadingAudio = true);
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('songs')
-          .doc(songId)
-          .get();
-      if (!doc.exists || !mounted) return;
-
-      final song = Song.fromMap(doc.id, doc.data()!);
+      // Song data is already in the room document — no Firestore fetch needed
+      final song = Song.fromMap(songData);
+      if (!mounted) return;
       setState(() => _song = song);
-      await widget.onSongLoad(
-          song.id, song.audioUrl, song.silenceOffset);
+      await widget.onSongLoad(song.id, song.audioUrl, song.silenceOffset);
     } finally {
       if (mounted) setState(() => _loadingAudio = false);
     }

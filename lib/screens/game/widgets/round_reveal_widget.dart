@@ -4,14 +4,14 @@ import '../../../models/song.dart';
 
 class RoundRevealWidget extends StatefulWidget {
   final String roomId;
-  final String songId;
+  final Song song;           // ← Song object, not String ID
   final bool isHost;
   final VoidCallback onNextRound;
 
   const RoundRevealWidget({
     super.key,
     required this.roomId,
-    required this.songId,
+    required this.song,
     required this.isHost,
     required this.onNextRound,
   });
@@ -22,7 +22,6 @@ class RoundRevealWidget extends StatefulWidget {
 
 class _RoundRevealWidgetState extends State<RoundRevealWidget>
     with SingleTickerProviderStateMixin {
-  Song? _song;
   late final AnimationController _ctrl;
   late final Animation<double> _fadeAnim;
   late final Animation<Offset> _slideAnim;
@@ -34,15 +33,12 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
       vsync: this,
       duration: const Duration(milliseconds: 450),
     );
-    _fadeAnim = CurvedAnimation(
-        parent: _ctrl, curve: Curves.easeIn);
+    _fadeAnim  = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.08),
       end: Offset.zero,
-    ).animate(CurvedAnimation(
-        parent: _ctrl, curve: Curves.easeOut));
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
     _ctrl.forward();
-    _loadSong();
   }
 
   @override
@@ -51,19 +47,10 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
     super.dispose();
   }
 
-  Future<void> _loadSong() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('songs')
-        .doc(widget.songId)
-        .get();
-    if (mounted && doc.exists) {
-      setState(() =>
-      _song = Song.fromMap(doc.id, doc.data()!));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final song = widget.song;   // ← no async loading needed, data is already here
+
     return FadeTransition(
       opacity: _fadeAnim,
       child: SlideTransition(
@@ -78,17 +65,15 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Header
+                    // ── Header ──────────────────────────────────────────
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 6),
                       decoration: BoxDecoration(
-                        color:
-                        Colors.purpleAccent.withOpacity(0.15),
+                        color: Colors.purpleAccent.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                            color: Colors.purpleAccent
-                                .withOpacity(0.4)),
+                            color: Colors.purpleAccent.withOpacity(0.4)),
                       ),
                       child: const Text(
                         '🎵 Round Over!',
@@ -100,99 +85,85 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
                     ),
                     const SizedBox(height: 28),
 
-                    // Song card
-                    if (_song != null) ...[
-                      // Album art placeholder
-                      Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          color:
-                          Colors.purpleAccent.withOpacity(0.15),
-                          borderRadius:
-                          BorderRadius.circular(16),
-                          border: Border.all(
-                              color: Colors.purpleAccent
-                                  .withOpacity(0.3)),
-                          image: _song!.albumArtUrl != null
-                              ? DecorationImage(
-                            image: NetworkImage(
-                                _song!.albumArtUrl!),
-                            fit: BoxFit.cover,
-                          )
-                              : null,
-                        ),
-                        child: _song!.albumArtUrl == null
-                            ? const Center(
-                            child: Text('🎵',
-                                style: TextStyle(
-                                    fontSize: 44)))
+                    // ── Album art ────────────────────────────────────────
+                    Container(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: Colors.purpleAccent.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                            color: Colors.purpleAccent.withOpacity(0.3)),
+                        image: song.albumArtUrl.isNotEmpty
+                            ? DecorationImage(
+                          image: NetworkImage(song.albumArtUrl),
+                          fit: BoxFit.cover,
+                        )
                             : null,
                       ),
-                      const SizedBox(height: 20),
+                      child: song.albumArtUrl.isEmpty
+                          ? const Center(
+                          child: Text('🎵',
+                              style: TextStyle(fontSize: 44)))
+                          : null,
+                    ),
+                    const SizedBox(height: 20),
 
-                      // Song info
-                      Text(
-                        _song!.title,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                        ),
-                        textAlign: TextAlign.center,
+                    // ── Song title ───────────────────────────────────────
+                    Text(
+                      song.title,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _song!.artist,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: Colors.white60,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment:
-                        MainAxisAlignment.center,
-                        children: [
-                          _Tag(label: _song!.language),
-                          const SizedBox(width: 6),
-                          _Tag(label: _song!.decade),
-                        ],
-                      ),
-                    ] else ...[
-                      const CircularProgressIndicator(),
-                    ],
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 6),
 
+                    // ── Artist ───────────────────────────────────────────
+                    Text(
+                      song.artist,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: Colors.white60,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+
+                    // ── Tags ─────────────────────────────────────────────
+                    Wrap(
+                      spacing: 6,
+                      children: [
+                        _Tag(label: song.genre),
+                        _Tag(label: song.decade),
+                        _Tag(label: song.difficultyLabel),
+                      ],
+                    ),
                     const SizedBox(height: 32),
 
-                    // Who guessed right
+                    // ── Who guessed correctly ────────────────────────────
                     _CorrectGuessers(roomId: widget.roomId),
                     const SizedBox(height: 24),
 
-                    // Next round (host only)
+                    // ── Next round button (host only) ────────────────────
                     if (widget.isHost)
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
                           onPressed: widget.onNextRound,
-                          icon: const Icon(
-                              Icons.skip_next_rounded),
+                          icon: const Icon(Icons.skip_next_rounded),
                           label: const Text('Next Round'),
                           style: FilledButton.styleFrom(
-                            backgroundColor:
-                            Colors.purpleAccent,
-                            padding:
-                            const EdgeInsets.symmetric(
-                                vertical: 14),
+                            backgroundColor: Colors.purpleAccent,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
                         ),
                       )
                     else
                       const Text(
                         'Waiting for host to continue...',
-                        style: TextStyle(
-                            color: Colors.white38,
-                            fontSize: 13),
+                        style: TextStyle(color: Colors.white38, fontSize: 13),
                       ),
                   ],
                 ),
@@ -205,6 +176,8 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
   }
 }
 
+// ── Tag chip ───────────────────────────────────────────────────────────────
+
 class _Tag extends StatelessWidget {
   final String label;
   const _Tag({required this.label});
@@ -212,8 +185,7 @@ class _Tag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:
-      const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
@@ -221,12 +193,13 @@ class _Tag extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: const TextStyle(
-            color: Colors.white60, fontSize: 11),
+        style: const TextStyle(color: Colors.white60, fontSize: 11),
       ),
     );
   }
 }
+
+// ── Correct guessers list ──────────────────────────────────────────────────
 
 class _CorrectGuessers extends StatelessWidget {
   final String roomId;
@@ -251,8 +224,7 @@ class _CorrectGuessers extends StatelessWidget {
 
         final names = snap.data!.docs
             .map((d) =>
-        (d.data() as Map<String, dynamic>)['displayName']
-        as String? ??
+        (d.data() as Map<String, dynamic>)['displayName'] as String? ??
             'Player')
             .toList();
 
@@ -260,8 +232,7 @@ class _CorrectGuessers extends StatelessWidget {
           children: [
             const Text(
               '✅ Caught by',
-              style: TextStyle(
-                  color: Colors.white54, fontSize: 12),
+              style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
             const SizedBox(height: 6),
             Wrap(
@@ -271,13 +242,10 @@ class _CorrectGuessers extends StatelessWidget {
               children: names
                   .map((name) => Chip(
                 label: Text(name,
-                    style:
-                    const TextStyle(fontSize: 12)),
-                backgroundColor: Colors.green
-                    .withOpacity(0.15),
+                    style: const TextStyle(fontSize: 12)),
+                backgroundColor: Colors.green.withOpacity(0.15),
                 side: BorderSide(
-                    color:
-                    Colors.green.withOpacity(0.4)),
+                    color: Colors.green.withOpacity(0.4)),
               ))
                   .toList(),
             ),

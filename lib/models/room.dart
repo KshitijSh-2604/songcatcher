@@ -9,10 +9,9 @@ class Room {
   final RoomStatus status;
   final int currentRound;
   final int totalRounds;
-  final String? currentSongId;
+  final Map<String, dynamic>? currentSong;
+  final String? difficulty;
   final int revealedSeconds;
-  final List<String> songPool;
-  final List<String> playedSongIds;
   final Timestamp? roundStartedAt;   // ← added
   final String? language;            // ← added (optional filter)
   final String? genre;               // ← added (optional filter)
@@ -24,10 +23,9 @@ class Room {
     required this.status,
     required this.currentRound,
     required this.totalRounds,
-    this.currentSongId,
+    this.currentSong,
+    this.difficulty,
     required this.revealedSeconds,
-    required this.songPool,
-    required this.playedSongIds,
     this.roundStartedAt,
     this.language,
     this.genre,
@@ -44,10 +42,9 @@ class Room {
       ),
       currentRound: (d['currentRound'] as num?)?.toInt() ?? 0,
       totalRounds: (d['totalRounds'] as num?)?.toInt() ?? 10,
-      currentSongId: d['currentSongId'] as String?,
+      currentSong: d['currentSong'] as Map<String, dynamic>?,
+      difficulty:  d['difficulty']  as String?,
       revealedSeconds: (d['revealedSeconds'] as num?)?.toInt() ?? 3,
-      songPool: List<String>.from(d['songPool'] ?? []),
-      playedSongIds: List<String>.from(d['playedSongIds'] ?? []),
       roundStartedAt: d['roundStartedAt'] as Timestamp?,
       language: d['language'] as String?,
       genre: d['genre'] as String?,
@@ -60,10 +57,9 @@ class Room {
     'status': status.name,
     'currentRound': currentRound,
     'totalRounds': totalRounds,
-    'currentSongId': currentSongId,
+    'currentSong': currentSong,
+    'difficulty':  difficulty,
     'revealedSeconds': revealedSeconds,
-    'songPool': songPool,
-    'playedSongIds': playedSongIds,
     if (roundStartedAt != null) 'roundStartedAt': roundStartedAt,
     if (language != null) 'language': language,
     if (genre != null) 'genre': genre,
@@ -72,28 +68,27 @@ class Room {
   Room copyWith({
     RoomStatus? status,
     int? currentRound,
-    String? currentSongId,
+    int? totalRounds,
+    Map<String, dynamic>? currentSong,   // ← was currentSongId
     int? revealedSeconds,
-    List<String>? songPool,
-    List<String>? playedSongIds,
     Timestamp? roundStartedAt,
     String? language,
     String? genre,
+    String? difficulty,                  // ← added
   }) {
     return Room(
-      id: id,
-      hostId: hostId,
-      code: code,
-      status: status ?? this.status,
-      currentRound: currentRound ?? this.currentRound,
-      totalRounds: totalRounds,
-      currentSongId: currentSongId ?? this.currentSongId,
+      id:              id,
+      hostId:          hostId,
+      code:            code,
+      status:          status          ?? this.status,
+      currentRound:    currentRound    ?? this.currentRound,
+      totalRounds:     totalRounds     ?? this.totalRounds,
+      currentSong:     currentSong     ?? this.currentSong,    // ← fixed
       revealedSeconds: revealedSeconds ?? this.revealedSeconds,
-      songPool: songPool ?? this.songPool,
-      playedSongIds: playedSongIds ?? this.playedSongIds,
-      roundStartedAt: roundStartedAt ?? this.roundStartedAt,
-      language: language ?? this.language,
-      genre: genre ?? this.genre,
+      roundStartedAt:  roundStartedAt  ?? this.roundStartedAt,
+      language:        language        ?? this.language,
+      genre:           genre           ?? this.genre,
+      difficulty:      difficulty      ?? this.difficulty,     // ← added
     );
   }
 }

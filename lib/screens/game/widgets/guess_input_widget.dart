@@ -38,7 +38,7 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
     super.didUpdateWidget(old);
     // Reset on new round
     if (old.room.currentRound != widget.room.currentRound ||
-        old.room.currentSongId != widget.room.currentSongId) {
+        old.room.currentSong != widget.room.currentSong) {
       setState(() => _guessedCorrectly = false);
       _ctrl.clear();
       _checkAlreadyGuessed();

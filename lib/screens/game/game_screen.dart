@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../models/room.dart';
+import '../../models/song.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/room_provider.dart';
 import '../../services/audio_service.dart';
@@ -140,10 +141,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               ),
 
               // ── Round reveal overlay ──────────────────────────────
-              if (_showReveal && room.currentSongId != null)
+              if (_showReveal && room.currentSong != null)
                 RoundRevealWidget(
                   roomId: widget.roomId,
-                  songId: room.currentSongId!,
+                  song: Song.fromMap(room.currentSong!),
                   isHost: isHost,
                   onNextRound: () {
                     _gameService.endRound(widget.roomId, room);

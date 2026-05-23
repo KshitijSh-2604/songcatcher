@@ -1,19 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../../services/spotify_service.dart';
-
-// Curated playlists — same as what was in Cloud Functions
-const _playlists = [
-  {'id': '37i9dQZF1DXcBWIGoYBM5M', 'language': 'English', 'genre': 'Pop'},
-  {'id': '37i9dQZF1DX0XUsuxWHRQd', 'language': 'English', 'genre': 'Hip-Hop'},
-  {'id': '37i9dQZF1DWXRqgorJj26U', 'language': 'English', 'genre': 'Rock'},
-  {'id': '37i9dQZF1DX4SBhb3fqCJd', 'language': 'English', 'genre': 'R&B'},
-  {'id': '37i9dQZF1DXb57FjYWz00c', 'language': 'English', 'genre': '80s'},
-  {'id': '37i9dQZF1DXbTxeAdrVG2l', 'language': 'English', 'genre': '90s'},
-  {'id': '37i9dQZF1DX10zKzsJ2jva', 'language': 'Spanish', 'genre': 'Reggaeton'},
-  {'id': '37i9dQZF1DXdgz8ZB7c6mk', 'language': 'French', 'genre': 'Pop'},
-  {'id': '37i9dQZF1DX9tPFAJQI8AP', 'language': 'Korean', 'genre': 'K-Pop'},
-];
+import '../../models/song.dart';
+import '../../services/itunes_service.dart';
 
 class SeedScreen extends StatefulWidget {
   const SeedScreen({super.key});
@@ -23,55 +10,43 @@ class SeedScreen extends StatefulWidget {
 }
 
 class _SeedScreenState extends State<SeedScreen> {
-  final _spotify = SpotifyService();
-  final _db = FirebaseFirestore.instance;
+  final _spotify = ItunesService();
 
   bool _running = false;
   String _status = '';
-  int _added = 0;
-  int _skipped = 0;
+  List<Song> _songs = [];
+  String _selectedGenre = 'Pop';
+  String _selectedDifficulty = 'easy';
 
-  Future<void> _seed() async {
+  static const _genres = [
+    'Pop', 'Hip-Hop', 'Rock', 'R&B', 'Electronic',
+    'K-Pop', 'Reggaeton', 'Bollywood', 'Indie', 'Mix',
+  ];
+
+  static const _difficulties = ['easy', 'medium', 'hard', 'hardcore'];
+
+  Future<void> _test() async {
     setState(() {
       _running = true;
-      _added = 0;
-      _skipped = 0;
-      _status = 'Starting...';
+      _status = 'Fetching from Spotify...';
+      _songs = [];
     });
 
     try {
-      for (final playlist in _playlists) {
-        setState(() => _status =
-        'Fetching ${playlist['language']} ${playlist['genre']}...');
+      final songs = _selectedGenre == 'Mix'
+          ? await _spotify.fetchMixedSongs(count: 10)
+          : await _spotify.fetchSongsForRoom(
+        difficulty: _selectedDifficulty,
+        genre: _selectedGenre,
+        count: 10,
+      );
 
-        final tracks = await _spotify.getPlaylistTracks(playlist['id']!);
-
-        for (final track in tracks) {
-          final docId = 'spotify_${track['id']}';
-          final ref = _db.collection('songs').doc(docId);
-          final existing = await ref.get();
-
-          if (existing.exists) {
-            setState(() => _skipped++);
-            continue;
-          }
-
-          final doc = _spotify.trackToSongDoc(
-            track,
-            playlist['language']!,
-            playlist['genre']!,
-          );
-
-          await ref.set({
-            ...doc,
-            'addedAt': FieldValue.serverTimestamp(),
-          });
-
-          setState(() => _added++);
-        }
-      }
-
-      setState(() => _status = '✅ Done! $_added songs added, $_skipped skipped.');
+      setState(() {
+        _songs = songs;
+        _status = songs.isEmpty
+            ? '⚠️  No songs with previews found for this combination.'
+            : '✅ ${songs.length} songs fetched live from Spotify.';
+      });
     } catch (e) {
       setState(() => _status = '❌ Error: $e');
     } finally {
@@ -82,55 +57,122 @@ class _SeedScreenState extends State<SeedScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Seed Song Library')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
+      appBar: AppBar(title: const Text('Spotify Debug')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Info banner
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.amber.withOpacity(0.08),
+                color: Colors.green.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                border: Border.all(color: Colors.green.withOpacity(0.3)),
               ),
               child: const Text(
-                '⚠️  Run this once to populate the song library from Spotify. '
-                    'It may take a few minutes. Keep the screen open.',
-                style: TextStyle(color: Colors.amber, fontSize: 13),
+                '✅  No seeding needed! Songs are fetched live from Spotify '
+                    'when each game starts. Use this screen to test the connection.',
+                style: TextStyle(color: Colors.green, fontSize: 13),
               ),
             ),
             const SizedBox(height: 24),
 
-            if (_status.isNotEmpty) ...[
+            // Genre picker
+            const Text('Genre', style: TextStyle(color: Colors.white54, fontSize: 12)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _genres.map((g) {
+                final selected = g == _selectedGenre;
+                return FilterChip(
+                  label: Text(g),
+                  selected: selected,
+                  onSelected: (_) => setState(() => _selectedGenre = g),
+                  selectedColor: Colors.purpleAccent.withOpacity(0.3),
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.purpleAccent : Colors.white70,
+                    fontSize: 12,
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 20),
+
+            // Difficulty picker (hidden for Mix)
+            if (_selectedGenre != 'Mix') ...[
+              const Text('Difficulty', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              const SizedBox(height: 8),
+              Row(
+                children: _difficulties.map((d) {
+                  final selected = d == _selectedDifficulty;
+                  final emoji = {'easy': '🟢', 'medium': '🟡', 'hard': '🔴', 'hardcore': '💀'}[d]!;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedDifficulty = d),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? Colors.purpleAccent.withOpacity(0.2)
+                              : Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: selected
+                                ? Colors.purpleAccent
+                                : Colors.white12,
+                          ),
+                        ),
+                        child: Text(
+                          '$emoji\n${d[0].toUpperCase()}${d.substring(1)}',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: selected ? Colors.purpleAccent : Colors.white54,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+            ],
+
+            // Test button
+            FilledButton.icon(
+              onPressed: _running ? null : _test,
+              icon: _running
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+                  : const Icon(Icons.wifi_tethering_rounded),
+              label: Text(_running ? 'Fetching...' : 'Test Spotify Connection'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.purpleAccent,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Status
+            if (_status.isNotEmpty)
               Text(_status,
                   style: const TextStyle(color: Colors.white70),
                   textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _Stat(label: 'Added', value: _added, color: Colors.greenAccent),
-                  const SizedBox(width: 24),
-                  _Stat(label: 'Skipped', value: _skipped, color: Colors.white38),
-                ],
-              ),
-              const SizedBox(height: 24),
-            ],
 
-            if (_running)
-              const LinearProgressIndicator()
-            else
-              FilledButton.icon(
-                onPressed: _seed,
-                icon: const Icon(Icons.download_rounded),
-                label: const Text('Seed Songs from Spotify'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.purpleAccent,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
+            // Song list preview
+            if (_songs.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white12),
+              const SizedBox(height: 8),
+              ..._songs.map((s) => _SongTile(song: s)),
+            ],
           ],
         ),
       ),
@@ -138,21 +180,80 @@ class _SeedScreenState extends State<SeedScreen> {
   }
 }
 
-class _Stat extends StatelessWidget {
-  final String label;
-  final int value;
-  final Color color;
-  const _Stat({required this.label, required this.value, required this.color});
+class _SongTile extends StatelessWidget {
+  final Song song;
+  const _SongTile({required this.song});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text('$value',
-            style: TextStyle(
-                color: color, fontSize: 28, fontWeight: FontWeight.w900)),
-        Text(label, style: const TextStyle(color: Colors.white38, fontSize: 12)),
-      ],
+    final diffColor = {
+      'easy':     Colors.green,
+      'medium':   Colors.yellow,
+      'hard':     Colors.orange,
+      'hardcore': Colors.red,
+    }[song.difficulty] ?? Colors.grey;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          // Album art
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: song.albumArtUrl.isNotEmpty
+                ? Image.network(song.albumArtUrl, width: 44, height: 44, fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const _PlaceholderArt())
+                : const _PlaceholderArt(),
+          ),
+          const SizedBox(width: 12),
+          // Title + artist
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(song.title,
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                Text(song.artist,
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          // Difficulty badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: diffColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: diffColor.withOpacity(0.4)),
+            ),
+            child: Text(
+              '${song.popularity}',
+              style: TextStyle(color: diffColor, fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+class _PlaceholderArt extends StatelessWidget {
+  const _PlaceholderArt();
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 44, height: 44,
+    color: Colors.white10,
+    child: const Icon(Icons.music_note, color: Colors.white24, size: 20),
+  );
 }
