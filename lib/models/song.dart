@@ -9,12 +9,13 @@ class Song {
   final String language;
   final String decade;
   final String difficulty;   // 'easy' | 'medium' | 'hard' | 'hardcore'
-  final int popularity;      // Spotify 0–100
+  final int popularity;      // derived rank/popularity, 0–100
   final int silenceOffset;
-  final String hint1;        // e.g. "Pop song"
+  final String hint1;        // e.g. "Bollywood song"
   final String hint2;        // e.g. "Released in the 2020s"
-  final String hint3;        // e.g. "By Drake"
+  final String hint3;        // e.g. "By Arijit Singh"
   final String spotifyId;
+  final int year;             // ← added, required by itunes_service.dart
 
   const Song({
     required this.id,
@@ -33,6 +34,7 @@ class Song {
     required this.hint2,
     required this.hint3,
     required this.spotifyId,
+    required this.year,
   });
 
   factory Song.fromMap(Map<String, dynamic> map) => Song(
@@ -52,6 +54,7 @@ class Song {
     hint2:         map['hint2']         as String? ?? '',
     hint3:         map['hint3']         as String? ?? '',
     spotifyId:     map['spotifyId']     as String? ?? '',
+    year:          (map['year']         as num?)?.toInt() ?? 2000,
   );
 
   Map<String, dynamic> toMap() => {
@@ -71,6 +74,7 @@ class Song {
     'hint2':         hint2,
     'hint3':         hint3,
     'spotifyId':     spotifyId,
+    'year':          year,
   };
 
   String get difficultyLabel {

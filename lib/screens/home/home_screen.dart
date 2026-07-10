@@ -15,20 +15,19 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
-  final _codeCtrl   = TextEditingController();
+  final _codeCtrl = TextEditingController();
   final _gameService = GameService();
 
-  bool    _loading = false;
+  bool _loading = false;
   String? _error;
 
   late final AnimationController _animCtrl;
-  late final Animation<double>   _fadeAnim;
+  late final Animation<double> _fadeAnim;
 
   @override
   void initState() {
     super.initState();
-    _animCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 600));
+    _animCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
     _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeIn);
     _animCtrl.forward();
   }
@@ -42,13 +41,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _createRoom() async {
     final user = ref.read(currentUserProvider)!;
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final roomId = await _gameService.createRoom(
-        hostId:     user.uid,
-        hostName:   user.displayName ?? 'Host',
-        genre:      'Mix',
-        difficulty: 'medium',
+        hostId: user.uid,
+        hostName: user.displayName ?? 'Host',
+        genre: 'Bollywood',
       );
       if (mounted) context.go('/lobby/$roomId');
     } catch (e) {
@@ -60,15 +61,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _joinRoom() async {
     final code = _codeCtrl.text.trim().toUpperCase();
-    if (code.isEmpty) { setState(() => _error = 'Please enter a room code.'); return; }
-    if (code.length != 6) { setState(() => _error = 'Room code must be 6 characters.'); return; }
+    if (code.isEmpty) {
+      setState(() => _error = 'Please enter a room code.');
+      return;
+    }
+    if (code.length != 6) {
+      setState(() => _error = 'Room code must be 6 characters.');
+      return;
+    }
 
     final user = ref.read(currentUserProvider)!;
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final roomId = await _gameService.joinRoom(
-        code:        code,
-        userId:      user.uid,
+        code: code,
+        userId: user.uid,
         displayName: user.displayName ?? 'Player',
       );
       if (roomId == null) {
@@ -90,7 +100,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final user    = ref.watch(currentUserProvider);
+    final user = ref.watch(currentUserProvider);
     final isGuest = user?.isAnonymous ?? true;
 
     return Scaffold(
@@ -104,8 +114,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 offset: const Offset(0, 48),
                 icon: CircleAvatar(
                   radius: 17,
-                  backgroundImage: user.photoURL != null
-                      ? NetworkImage(user.photoURL!) : null,
+                  backgroundImage: user.photoURL != null ? NetworkImage(user.photoURL!) : null,
                   backgroundColor: Colors.purpleAccent.withOpacity(0.3),
                   child: user.photoURL == null
                       ? Text(
@@ -122,13 +131,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       children: [
                         Text(
                           isGuest ? 'Guest' : (user.displayName ?? 'Player'),
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, color: Colors.white),
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                         if (!isGuest && user.email != null)
-                          Text(user.email!,
-                              style: const TextStyle(
-                                  color: Colors.white54, fontSize: 12)),
+                          Text(user.email!, style: const TextStyle(color: Colors.white54, fontSize: 12)),
                       ],
                     ),
                   ),
@@ -137,11 +143,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     const PopupMenuItem(
                       value: 'register',
                       child: Row(children: [
-                        Icon(Icons.person_add_outlined,
-                            size: 18, color: Colors.purpleAccent),
+                        Icon(Icons.person_add_outlined, size: 18, color: Colors.purpleAccent),
                         SizedBox(width: 10),
-                        Text('Create Account',
-                            style: TextStyle(color: Colors.purpleAccent)),
+                        Text('Create Account', style: TextStyle(color: Colors.purpleAccent)),
                       ]),
                     ),
                   const PopupMenuItem(
@@ -154,7 +158,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ),
                 ],
                 onSelected: (val) {
-                  if (val == 'logout')   _signOut();
+                  if (val == 'logout') _signOut();
                   if (val == 'register') context.go('/login');
                 },
               ),
@@ -164,147 +168,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       body: FadeTransition(
         opacity: _fadeAnim,
         child: SafeArea(
-          child: context.isDesktop
-              ? _DesktopLayout(
-            isGuest:    isGuest,
-            error:      _error,
-            loading:    _loading,
-            codeCtrl:   _codeCtrl,
-            onCreate:   _createRoom,
-            onJoin:     _joinRoom,
-            onRegister: () => context.go('/login'),
-          )
-              : _MobileLayout(
-            isGuest:    isGuest,
-            error:      _error,
-            loading:    _loading,
-            codeCtrl:   _codeCtrl,
-            onCreate:   _createRoom,
-            onJoin:     _joinRoom,
-            onRegister: () => context.go('/login'),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Desktop layout — two columns, no scroll ────────────────────────────────
-
-class _DesktopLayout extends StatelessWidget {
-  final bool isGuest;
-  final String? error;
-  final bool loading;
-  final TextEditingController codeCtrl;
-  final VoidCallback onCreate;
-  final VoidCallback onJoin;
-  final VoidCallback onRegister;
-
-  const _DesktopLayout({
-    required this.isGuest,
-    required this.error,
-    required this.loading,
-    required this.codeCtrl,
-    required this.onCreate,
-    required this.onJoin,
-    required this.onRegister,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1100),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // ── Left panel: actions ───────────────────────────────
-              Expanded(
-                flex: 5,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _HeroCard(large: true),
-                    const SizedBox(height: 28),
-                    if (isGuest) ...[
-                      _GuestBanner(onRegister: onRegister),
-                      const SizedBox(height: 20),
-                    ],
-                    if (error != null) ...[
-                      _ErrorBanner(message: error!),
-                      const SizedBox(height: 16),
-                    ],
-                    FilledButton.icon(
-                      onPressed: loading ? null : onCreate,
-                      icon: const Icon(Icons.add_circle_outline),
-                      label: const Text('Create Room'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.purpleAccent,
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        textStyle: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth.clamp(320, 1100),
+                    ),
+                    child: Padding(
+                      padding: context.pagePadding,
+                      child: context.twoColumn
+                          ? _WideHome(
+                        isGuest: isGuest,
+                        error: _error,
+                        loading: _loading,
+                        codeCtrl: _codeCtrl,
+                        onCreate: _createRoom,
+                        onJoin: _joinRoom,
+                        onRegister: () => context.go('/login'),
+                      )
+                          : _NarrowHome(
+                        isGuest: isGuest,
+                        error: _error,
+                        loading: _loading,
+                        codeCtrl: _codeCtrl,
+                        onCreate: _createRoom,
+                        onJoin: _joinRoom,
+                        onRegister: () => context.go('/login'),
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    const Text('Join a Room',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white70,
-                            fontSize: 14)),
-                    const SizedBox(height: 10),
-                    Row(children: [
-                      Expanded(
-                        child: TextField(
-                          controller: codeCtrl,
-                          textCapitalization: TextCapitalization.characters,
-                          maxLength: 6,
-                          onSubmitted: (_) => onJoin(),
-                          style: const TextStyle(fontSize: 16),
-                          decoration: const InputDecoration(
-                            hintText: 'Room Code — e.g. XK9P2A',
-                            prefixIcon: Icon(Icons.meeting_room_outlined),
-                            counterText: '',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      FilledButton(
-                        onPressed: loading ? null : onJoin,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 20, horizontal: 28),
-                        ),
-                        child: loading
-                            ? const SizedBox(
-                            width: 18, height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                            : const Text('Join',
-                            style: TextStyle(fontSize: 16)),
-                      ),
-                    ]),
-                  ],
+                  ),
                 ),
-              ),
-
-              const SizedBox(width: 48),
-
-              // ── Right panel: info ─────────────────────────────────
-              Expanded(
-                flex: 4,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _HowToPlayCard(),
-                    const SizedBox(height: 20),
-                    _DifficultyGuide(),
-                  ],
-                ),
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),
@@ -312,9 +210,9 @@ class _DesktopLayout extends StatelessWidget {
   }
 }
 
-// ── Mobile/Tablet layout — scrollable ─────────────────────────────────────
+// ── Wide layout — two columns, no scroll ───────────────────────────────────
 
-class _MobileLayout extends StatelessWidget {
+class _WideHome extends StatelessWidget {
   final bool isGuest;
   final String? error;
   final bool loading;
@@ -323,7 +221,7 @@ class _MobileLayout extends StatelessWidget {
   final VoidCallback onJoin;
   final VoidCallback onRegister;
 
-  const _MobileLayout({
+  const _WideHome({
     required this.isGuest,
     required this.error,
     required this.loading,
@@ -335,27 +233,24 @@ class _MobileLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Max width scales: mobile=440, tablet=600
-    final maxW = context.isTablet ? 600.0 : 440.0;
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxW),
-        child: SingleChildScrollView(
-          padding: context.pagePadding,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          flex: 5,
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 8),
-              _HeroCard(large: context.isTablet),
-              const SizedBox(height: 28),
+              _HeroCard(large: true),
+              Gap(context.fs(22, max: 32)),
               if (isGuest) ...[
                 _GuestBanner(onRegister: onRegister),
-                const SizedBox(height: 16),
+                Gap(context.fs(16, max: 22)),
               ],
               if (error != null) ...[
                 _ErrorBanner(message: error!),
-                const SizedBox(height: 14),
+                Gap(context.fs(12, max: 18)),
               ],
               FilledButton.icon(
                 onPressed: loading ? null : onCreate,
@@ -363,16 +258,15 @@ class _MobileLayout extends StatelessWidget {
                 label: const Text('Create Room'),
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.purpleAccent,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  padding: EdgeInsets.symmetric(vertical: context.fs(15, max: 20)),
+                  textStyle: TextStyle(fontSize: context.ff(14, max: 17), fontWeight: FontWeight.bold),
                 ),
               ),
-              const SizedBox(height: 18),
-              const Text('Join a Room',
+              Gap(context.fs(16, max: 22)),
+              Text('Join a Room',
                   style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white70,
-                      fontSize: 13)),
-              const SizedBox(height: 8),
+                      fontWeight: FontWeight.w600, color: Colors.white70, fontSize: context.ff(12, max: 15))),
+              Gap(context.fs(8, max: 12)),
               Row(children: [
                 Expanded(
                   child: TextField(
@@ -380,6 +274,7 @@ class _MobileLayout extends StatelessWidget {
                     textCapitalization: TextCapitalization.characters,
                     maxLength: 6,
                     onSubmitted: (_) => onJoin(),
+                    style: TextStyle(fontSize: context.ff(14, max: 18)),
                     decoration: const InputDecoration(
                       hintText: 'Room Code — e.g. XK9P2A',
                       prefixIcon: Icon(Icons.meeting_room_outlined),
@@ -387,30 +282,130 @@ class _MobileLayout extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: context.fs(10, max: 14)),
                 FilledButton(
                   onPressed: loading ? null : onJoin,
                   style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 18, horizontal: 22),
+                    padding: EdgeInsets.symmetric(
+                        vertical: context.fs(17, max: 22), horizontal: context.fs(22, max: 30)),
                   ),
                   child: loading
-                      ? const SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                      : const Text('Join'),
+                      ? SizedBox(
+                    width: context.ff(16, max: 20),
+                    height: context.ff(16, max: 20),
+                    child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                      : Text('Join', style: TextStyle(fontSize: context.ff(14, max: 18))),
                 ),
               ]),
-              const SizedBox(height: 28),
-              _HowToPlayCard(),
-              const SizedBox(height: 16),
-              _DifficultyGuide(),
-              const SizedBox(height: 16),
             ],
           ),
         ),
-      ),
+        SizedBox(width: context.fs(32, max: 48)),
+        Expanded(
+          flex: 4,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const _HowToPlayCard(),
+              Gap(context.fs(16, max: 22)),
+              const _DifficultyGuide(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Narrow layout — single column, no scroll (scales down instead) ────────
+
+class _NarrowHome extends StatelessWidget {
+  final bool isGuest;
+  final String? error;
+  final bool loading;
+  final TextEditingController codeCtrl;
+  final VoidCallback onCreate;
+  final VoidCallback onJoin;
+  final VoidCallback onRegister;
+
+  const _NarrowHome({
+    required this.isGuest,
+    required this.error,
+    required this.loading,
+    required this.codeCtrl,
+    required this.onCreate,
+    required this.onJoin,
+    required this.onRegister,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Gap(context.fs(6, max: 10)),
+        _HeroCard(large: context.isTablet),
+        Gap(context.fs(20, max: 28)),
+        if (isGuest) ...[
+          _GuestBanner(onRegister: onRegister),
+          Gap(context.fs(12, max: 18)),
+        ],
+        if (error != null) ...[
+          _ErrorBanner(message: error!),
+          Gap(context.fs(10, max: 14)),
+        ],
+        FilledButton.icon(
+          onPressed: loading ? null : onCreate,
+          icon: const Icon(Icons.add_circle_outline),
+          label: const Text('Create Room'),
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.purpleAccent,
+            padding: EdgeInsets.symmetric(vertical: context.fs(13, max: 18)),
+          ),
+        ),
+        Gap(context.fs(14, max: 20)),
+        Text('Join a Room',
+            style: TextStyle(
+                fontWeight: FontWeight.w600, color: Colors.white70, fontSize: context.ff(11, max: 14))),
+        Gap(context.fs(6, max: 10)),
+        Row(children: [
+          Expanded(
+            child: TextField(
+              controller: codeCtrl,
+              textCapitalization: TextCapitalization.characters,
+              maxLength: 6,
+              onSubmitted: (_) => onJoin(),
+              style: TextStyle(fontSize: context.ff(13, max: 16)),
+              decoration: const InputDecoration(
+                hintText: 'Room Code — e.g. XK9P2A',
+                prefixIcon: Icon(Icons.meeting_room_outlined),
+                counterText: '',
+              ),
+            ),
+          ),
+          SizedBox(width: context.fs(8, max: 12)),
+          FilledButton(
+            onPressed: loading ? null : onJoin,
+            style: FilledButton.styleFrom(
+              padding: EdgeInsets.symmetric(
+                  vertical: context.fs(15, max: 20), horizontal: context.fs(18, max: 24)),
+            ),
+            child: loading
+                ? SizedBox(
+              width: context.ff(16, max: 20),
+              height: context.ff(16, max: 20),
+              child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+                : Text('Join', style: TextStyle(fontSize: context.ff(13, max: 16))),
+          ),
+        ]),
+        Gap(context.fs(22, max: 30)),
+        const _HowToPlayCard(),
+        Gap(context.fs(14, max: 20)),
+        const _DifficultyGuide(),
+        Gap(context.fs(12, max: 18)),
+      ],
     );
   }
 }
@@ -424,48 +419,46 @@ class _HeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.all(large ? 32 : 24),
+      padding: EdgeInsets.all(context.fs(large ? 26 : 20, max: large ? 38 : 30)),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Colors.purpleAccent.withOpacity(0.2),
-            Colors.deepPurple.withOpacity(0.1),
-          ],
+          colors: [Colors.purpleAccent.withOpacity(0.2), Colors.deepPurple.withOpacity(0.1)],
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
       ),
       child: Column(
         children: [
-          Text('🎵', style: TextStyle(fontSize: large ? 56 : 44)),
-          SizedBox(height: large ? 14 : 10),
+          Text('🎵', style: TextStyle(fontSize: context.ff(large ? 46 : 38, max: large ? 62 : 50))),
+          Gap(context.fs(large ? 12 : 9, max: large ? 16 : 12)),
           Text(
             'Catch the song first!',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            style: TextStyle(
               fontWeight: FontWeight.w800,
               color: Colors.white,
-              fontSize: large ? 26 : 20,
+              fontSize: context.ff(large ? 22 : 18, max: large ? 30 : 24),
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 8),
+          Gap(context.fs(7, max: 10)),
           Text(
             'Listen to short clips and guess the song\nbefore your friends do.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-                color: Colors.white54, fontSize: large ? 15 : 13),
+            style: TextStyle(color: Colors.white54, fontSize: context.ff(large ? 13 : 12, max: large ? 17 : 15)),
           ),
-          SizedBox(height: large ? 20 : 16),
+          Gap(context.fs(large ? 18 : 14, max: large ? 24 : 20)),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _ClipBadge(seconds: 3,  color: Colors.greenAccent, large: large),
-              const SizedBox(width: 8),
-              _ClipBadge(seconds: 5,  color: Colors.amberAccent, large: large),
-              const SizedBox(width: 8),
-              _ClipBadge(seconds: 10, color: Colors.redAccent,   large: large),
+              _ClipBadge(seconds: 2, color: Colors.tealAccent, large: large),
+              SizedBox(width: context.fs(6, max: 9)),
+              _ClipBadge(seconds: 3, color: Colors.greenAccent, large: large),
+              SizedBox(width: context.fs(6, max: 9)),
+              _ClipBadge(seconds: 5, color: Colors.amberAccent, large: large),
+              SizedBox(width: context.fs(6, max: 9)),
+              _ClipBadge(seconds: 10, color: Colors.redAccent, large: large),
             ],
           ),
         ],
@@ -475,17 +468,17 @@ class _HeroCard extends StatelessWidget {
 }
 
 class _ClipBadge extends StatelessWidget {
-  final int    seconds;
-  final Color  color;
-  final bool   large;
-  const _ClipBadge(
-      {required this.seconds, required this.color, this.large = false});
+  final int seconds;
+  final Color color;
+  final bool large;
+  const _ClipBadge({required this.seconds, required this.color, this.large = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.symmetric(
-          horizontal: large ? 16 : 12, vertical: large ? 8 : 6),
+          horizontal: context.fs(large ? 13 : 10, max: large ? 18 : 14),
+          vertical: context.fs(large ? 6 : 5, max: large ? 9 : 7)),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
@@ -496,7 +489,7 @@ class _ClipBadge extends StatelessWidget {
         style: TextStyle(
           color: color,
           fontWeight: FontWeight.bold,
-          fontSize: large ? 15 : 13,
+          fontSize: context.ff(large ? 13 : 11, max: large ? 17 : 15),
         ),
       ),
     );
@@ -512,28 +505,25 @@ class _GuestBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: EdgeInsets.symmetric(horizontal: context.fs(12, max: 16), vertical: context.fs(10, max: 14)),
       decoration: BoxDecoration(
         color: Colors.amber.withOpacity(0.08),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.amber.withOpacity(0.3)),
       ),
       child: Row(children: [
-        const Icon(Icons.info_outline, color: Colors.amber, size: 16),
-        const SizedBox(width: 10),
-        const Expanded(
+        Icon(Icons.info_outline, color: Colors.amber, size: context.ff(14, max: 18)),
+        SizedBox(width: context.fs(8, max: 12)),
+        Expanded(
           child: Text(
             'You\'re playing as a guest. Your progress won\'t be saved.',
-            style: TextStyle(color: Colors.amber, fontSize: 12),
+            style: TextStyle(color: Colors.amber, fontSize: context.ff(11, max: 13)),
           ),
         ),
         TextButton(
           onPressed: onRegister,
-          style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
-              minimumSize: Size.zero,
-              foregroundColor: Colors.amber),
-          child: const Text('Register', style: TextStyle(fontSize: 12)),
+          style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, foregroundColor: Colors.amber),
+          child: Text('Register', style: TextStyle(fontSize: context.ff(11, max: 13))),
         ),
       ]),
     );
@@ -549,18 +539,17 @@ class _ErrorBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: context.fs(12, max: 16), vertical: context.fs(9, max: 12)),
       decoration: BoxDecoration(
         color: Colors.red.withOpacity(0.1),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.red.withOpacity(0.3)),
       ),
       child: Row(children: [
-        const Icon(Icons.error_outline, color: Colors.redAccent, size: 16),
-        const SizedBox(width: 8),
+        Icon(Icons.error_outline, color: Colors.redAccent, size: context.ff(14, max: 18)),
+        SizedBox(width: context.fs(7, max: 10)),
         Expanded(
-          child: Text(message,
-              style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+          child: Text(message, style: TextStyle(color: Colors.redAccent, fontSize: context.ff(12, max: 14))),
         ),
       ]),
     );
@@ -570,10 +559,12 @@ class _ErrorBanner extends StatelessWidget {
 // ── How to Play Card ───────────────────────────────────────────────────────
 
 class _HowToPlayCard extends StatelessWidget {
+  const _HowToPlayCard();
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(context.fs(16, max: 22)),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.04),
         borderRadius: BorderRadius.circular(16),
@@ -582,27 +573,15 @@ class _HowToPlayCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('How to Play',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          const SizedBox(height: 14),
-          _Step(icon: '🎵', title: 'Hear a clip',
-              desc: 'A short audio clip plays — 3s, 5s, or 10s.'),
-          const SizedBox(height: 10),
-          _Step(icon: '💡', title: 'Guess the song',
-              desc: 'Type the song title or artist name.'),
-          const SizedBox(height: 10),
-          _Step(icon: '⚡', title: 'Score points',
-              desc: 'Faster correct guesses earn more points.'),
-          const SizedBox(height: 10),
-          _Step(icon: '🏆', title: 'Win the round',
-              desc: 'Most points after all rounds wins!'),
-          // Hidden admin long-press
-          const SizedBox(height: 8),
-          GestureDetector(
-            onLongPress: () => context.go('/admin/seed'),
-            child: const Text('songcatcher.io',
-                style: TextStyle(color: Colors.white12, fontSize: 11)),
-          ),
+          Text('How to Play', style: TextStyle(fontWeight: FontWeight.bold, fontSize: context.ff(13, max: 17))),
+          Gap(context.fs(12, max: 16)),
+          _Step(icon: '🎵', title: 'Hear a clip', desc: 'A short audio clip plays — 2s, 3s, 5s, or 10s.'),
+          Gap(context.fs(9, max: 12)),
+          _Step(icon: '💡', title: 'Guess the song', desc: 'Type the song title or artist name.'),
+          Gap(context.fs(9, max: 12)),
+          _Step(icon: '⚡', title: 'Score points', desc: 'Faster correct guesses earn more points.'),
+          Gap(context.fs(9, max: 12)),
+          _Step(icon: '🏆', title: 'Win the round', desc: 'Most points after all rounds wins!'),
         ],
       ),
     );
@@ -620,18 +599,14 @@ class _Step extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(icon, style: const TextStyle(fontSize: 20)),
-        const SizedBox(width: 12),
+        Text(icon, style: TextStyle(fontSize: context.ff(17, max: 22))),
+        SizedBox(width: context.fs(10, max: 14)),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 13)),
-              Text(desc,
-                  style: const TextStyle(
-                      color: Colors.white54, fontSize: 12)),
+              Text(title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: context.ff(12, max: 15))),
+              Text(desc, style: TextStyle(color: Colors.white54, fontSize: context.ff(11, max: 13))),
             ],
           ),
         ),
@@ -643,10 +618,12 @@ class _Step extends StatelessWidget {
 // ── Difficulty Guide ───────────────────────────────────────────────────────
 
 class _DifficultyGuide extends StatelessWidget {
+  const _DifficultyGuide();
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(context.fs(13, max: 18)),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.03),
         borderRadius: BorderRadius.circular(14),
@@ -655,20 +632,14 @@ class _DifficultyGuide extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Difficulty Levels',
+          Text('Difficulty Levels',
               style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: Colors.white70)),
-          const SizedBox(height: 10),
-          const _DiffRow(emoji: '🟢', label: 'Easy',
-              desc: 'Chart-toppers everyone knows'),
-          const _DiffRow(emoji: '🟡', label: 'Medium',
-              desc: 'Popular but not mega-hits'),
-          const _DiffRow(emoji: '🔴', label: 'Hard',
-              desc: 'Less mainstream tracks'),
-          const _DiffRow(emoji: '💀', label: 'Hardcore',
-              desc: 'Deep cuts & obscure songs'),
+                  fontWeight: FontWeight.bold, fontSize: context.ff(12, max: 15), color: Colors.white70)),
+          Gap(context.fs(8, max: 12)),
+          _DiffRow(emoji: '🟢', label: 'Easy', desc: 'Chart-toppers everyone knows'),
+          _DiffRow(emoji: '🟡', label: 'Medium', desc: 'Popular but not mega-hits'),
+          _DiffRow(emoji: '🔴', label: 'Hard', desc: 'Less mainstream tracks'),
+          _DiffRow(emoji: '💀', label: 'Hardcore', desc: 'Deep cuts & obscure songs'),
         ],
       ),
     );
@@ -679,23 +650,18 @@ class _DiffRow extends StatelessWidget {
   final String emoji;
   final String label;
   final String desc;
-  const _DiffRow(
-      {required this.emoji, required this.label, required this.desc});
+  const _DiffRow({required this.emoji, required this.label, required this.desc});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: context.fs(5, max: 8)),
       child: Row(children: [
-        Text(emoji, style: const TextStyle(fontSize: 14)),
-        const SizedBox(width: 8),
-        Text('$label  ',
-            style: const TextStyle(
-                fontWeight: FontWeight.w600, fontSize: 12)),
+        Text(emoji, style: TextStyle(fontSize: context.ff(12, max: 15))),
+        SizedBox(width: context.fs(6, max: 9)),
+        Text('$label  ', style: TextStyle(fontWeight: FontWeight.w600, fontSize: context.ff(11, max: 14))),
         Expanded(
-          child: Text(desc,
-              style: const TextStyle(
-                  color: Colors.white38, fontSize: 11)),
+          child: Text(desc, style: TextStyle(color: Colors.white38, fontSize: context.ff(10, max: 12))),
         ),
       ]),
     );

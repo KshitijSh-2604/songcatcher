@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum RoomStatus { waiting, playing, finished }
+enum RoomStatus { waiting, playing, roundEnded, finished }
 
 class Room {
   final String id;
@@ -12,9 +12,11 @@ class Room {
   final Map<String, dynamic>? currentSong;
   final String? difficulty;
   final int revealedSeconds;
-  final Timestamp? roundStartedAt;   // ← added
-  final String? language;            // ← added (optional filter)
-  final String? genre;               // ← added (optional filter)
+  final Timestamp? roundStartedAt;
+  final String? language;
+  final String? genre;
+  final int yearFrom;
+  final int yearTo;
 
   const Room({
     required this.id,
@@ -29,6 +31,8 @@ class Room {
     this.roundStartedAt,
     this.language,
     this.genre,
+    this.yearFrom = 1950,
+    this.yearTo = 2020,
   });
 
   factory Room.fromMap(String id, Map<String, dynamic> d) {
@@ -48,6 +52,8 @@ class Room {
       roundStartedAt: d['roundStartedAt'] as Timestamp?,
       language: d['language'] as String?,
       genre: d['genre'] as String?,
+      yearFrom: (d['yearFrom'] as num?)?.toInt() ?? 1950,
+      yearTo: (d['yearTo'] as num?)?.toInt() ?? 2020,
     );
   }
 
@@ -63,18 +69,22 @@ class Room {
     if (roundStartedAt != null) 'roundStartedAt': roundStartedAt,
     if (language != null) 'language': language,
     if (genre != null) 'genre': genre,
+    'yearFrom': yearFrom,
+    'yearTo': yearTo,
   };
 
   Room copyWith({
     RoomStatus? status,
     int? currentRound,
     int? totalRounds,
-    Map<String, dynamic>? currentSong,   // ← was currentSongId
+    Map<String, dynamic>? currentSong,
     int? revealedSeconds,
     Timestamp? roundStartedAt,
     String? language,
     String? genre,
-    String? difficulty,                  // ← added
+    String? difficulty,
+    int? yearFrom,
+    int? yearTo,
   }) {
     return Room(
       id:              id,
@@ -83,12 +93,14 @@ class Room {
       status:          status          ?? this.status,
       currentRound:    currentRound    ?? this.currentRound,
       totalRounds:     totalRounds     ?? this.totalRounds,
-      currentSong:     currentSong     ?? this.currentSong,    // ← fixed
+      currentSong:     currentSong     ?? this.currentSong,
       revealedSeconds: revealedSeconds ?? this.revealedSeconds,
       roundStartedAt:  roundStartedAt  ?? this.roundStartedAt,
       language:        language        ?? this.language,
       genre:           genre           ?? this.genre,
-      difficulty:      difficulty      ?? this.difficulty,     // ← added
+      difficulty:      difficulty      ?? this.difficulty,
+      yearFrom:        yearFrom        ?? this.yearFrom,
+      yearTo:          yearTo          ?? this.yearTo,
     );
   }
 }

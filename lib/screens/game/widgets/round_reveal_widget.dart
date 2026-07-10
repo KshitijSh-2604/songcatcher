@@ -1,10 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../../models/song.dart';
+import '../../../utils/responsive.dart';
 
 class RoundRevealWidget extends StatefulWidget {
   final String roomId;
-  final Song song;           // ← Song object, not String ID
+  final Song song;
   final bool isHost;
   final VoidCallback onNextRound;
 
@@ -29,15 +30,10 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 450),
-    );
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 450));
     _fadeAnim  = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 0.08),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
     _ctrl.forward();
   }
 
@@ -49,7 +45,8 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
 
   @override
   Widget build(BuildContext context) {
-    final song = widget.song;   // ← no async loading needed, data is already here
+    final song = widget.song;
+    final cardWidth = context.fw(380, max: 460);
 
     return FadeTransition(
       opacity: _fadeAnim,
@@ -59,92 +56,81 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
           color: const Color(0xEE0F0F1A),
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Padding(
-                padding: const EdgeInsets.all(28),
+              constraints: BoxConstraints(maxWidth: cardWidth),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(context.fs(20, max: 34)),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // ── Header ──────────────────────────────────────────
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 6),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: context.fs(14, max: 20), vertical: context.fs(5, max: 8)),
                       decoration: BoxDecoration(
                         color: Colors.purpleAccent.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                            color: Colors.purpleAccent.withOpacity(0.4)),
+                        border: Border.all(color: Colors.purpleAccent.withOpacity(0.4)),
                       ),
-                      child: const Text(
+                      child: Text(
                         '🎵 Round Over!',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.purpleAccent,
+                          fontSize: context.ff(13, max: 16),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 28),
+                    Gap(context.fs(22, max: 34)),
 
                     // ── Album art ────────────────────────────────────────
                     Container(
-                      width: 120,
-                      height: 120,
+                      width: context.fs(96, max: 150),
+                      height: context.fs(96, max: 150),
                       decoration: BoxDecoration(
                         color: Colors.purpleAccent.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                            color: Colors.purpleAccent.withOpacity(0.3)),
+                        borderRadius: BorderRadius.circular(context.fs(14, max: 20)),
+                        border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
                         image: song.albumArtUrl.isNotEmpty
-                            ? DecorationImage(
-                          image: NetworkImage(song.albumArtUrl),
-                          fit: BoxFit.cover,
-                        )
+                            ? DecorationImage(image: NetworkImage(song.albumArtUrl), fit: BoxFit.cover)
                             : null,
                       ),
                       child: song.albumArtUrl.isEmpty
-                          ? const Center(
-                          child: Text('🎵',
-                              style: TextStyle(fontSize: 44)))
+                          ? Center(child: Text('🎵', style: TextStyle(fontSize: context.ff(36, max: 54))))
                           : null,
                     ),
-                    const SizedBox(height: 20),
+                    Gap(context.fs(16, max: 24)),
 
                     // ── Song title ───────────────────────────────────────
                     Text(
                       song.title,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                      ),
+                      style: TextStyle(fontSize: context.ff(18, max: 26), fontWeight: FontWeight.w900),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 6),
+                    Gap(context.fs(5, max: 8)),
 
                     // ── Artist ───────────────────────────────────────────
                     Text(
                       song.artist,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Colors.white60,
-                      ),
+                      style: TextStyle(fontSize: context.ff(13, max: 17), color: Colors.white60),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 10),
+                    Gap(context.fs(8, max: 14)),
 
                     // ── Tags ─────────────────────────────────────────────
                     Wrap(
-                      spacing: 6,
+                      spacing: context.fs(5, max: 8),
+                      alignment: WrapAlignment.center,
                       children: [
                         _Tag(label: song.genre),
                         _Tag(label: song.decade),
                         _Tag(label: song.difficultyLabel),
                       ],
                     ),
-                    const SizedBox(height: 32),
+                    Gap(context.fs(26, max: 40)),
 
                     // ── Who guessed correctly ────────────────────────────
                     _CorrectGuessers(roomId: widget.roomId),
-                    const SizedBox(height: 24),
+                    Gap(context.fs(20, max: 30)),
 
                     // ── Next round button (host only) ────────────────────
                     if (widget.isHost)
@@ -152,18 +138,18 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
                         width: double.infinity,
                         child: FilledButton.icon(
                           onPressed: widget.onNextRound,
-                          icon: const Icon(Icons.skip_next_rounded),
-                          label: const Text('Next Round'),
+                          icon: Icon(Icons.skip_next_rounded, size: context.ff(18, max: 22)),
+                          label: Text('Next Round', style: TextStyle(fontSize: context.ff(14, max: 17))),
                           style: FilledButton.styleFrom(
                             backgroundColor: Colors.purpleAccent,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            padding: EdgeInsets.symmetric(vertical: context.fs(12, max: 18)),
                           ),
                         ),
                       )
                     else
-                      const Text(
+                      Text(
                         'Waiting for host to continue...',
-                        style: TextStyle(color: Colors.white38, fontSize: 13),
+                        style: TextStyle(color: Colors.white38, fontSize: context.ff(12, max: 14)),
                       ),
                   ],
                 ),
@@ -185,16 +171,13 @@ class _Tag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      padding: EdgeInsets.symmetric(horizontal: context.fs(8, max: 12), vertical: context.fs(2, max: 4)),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white24),
       ),
-      child: Text(
-        label,
-        style: const TextStyle(color: Colors.white60, fontSize: 11),
-      ),
+      child: Text(label, style: TextStyle(color: Colors.white60, fontSize: context.ff(10, max: 12))),
     );
   }
 }
@@ -216,36 +199,29 @@ class _CorrectGuessers extends StatelessWidget {
           .snapshots(),
       builder: (_, snap) {
         if (!snap.hasData || snap.data!.docs.isEmpty) {
-          return const Text(
+          return Text(
             'Nobody caught this one! 🙈',
-            style: TextStyle(color: Colors.white38),
+            style: TextStyle(color: Colors.white38, fontSize: context.ff(13, max: 15)),
           );
         }
 
         final names = snap.data!.docs
-            .map((d) =>
-        (d.data() as Map<String, dynamic>)['displayName'] as String? ??
-            'Player')
+            .map((d) => (d.data() as Map<String, dynamic>)['displayName'] as String? ?? 'Player')
             .toList();
 
         return Column(
           children: [
-            const Text(
-              '✅ Caught by',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
-            ),
-            const SizedBox(height: 6),
+            Text('✅ Caught by', style: TextStyle(color: Colors.white54, fontSize: context.ff(11, max: 13))),
+            Gap(context.fs(5, max: 8)),
             Wrap(
-              spacing: 6,
-              runSpacing: 6,
+              spacing: context.fs(5, max: 8),
+              runSpacing: context.fs(5, max: 8),
               alignment: WrapAlignment.center,
               children: names
                   .map((name) => Chip(
-                label: Text(name,
-                    style: const TextStyle(fontSize: 12)),
+                label: Text(name, style: TextStyle(fontSize: context.ff(11, max: 13))),
                 backgroundColor: Colors.green.withOpacity(0.15),
-                side: BorderSide(
-                    color: Colors.green.withOpacity(0.4)),
+                side: BorderSide(color: Colors.green.withOpacity(0.4)),
               ))
                   .toList(),
             ),

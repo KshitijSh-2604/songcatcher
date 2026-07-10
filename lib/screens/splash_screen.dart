@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
+import '../utils/responsive.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -21,23 +22,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   void initState() {
     super.initState();
 
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
 
-    _fadeAnim = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeIn,
-    );
+    _fadeAnim = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
 
-    _scaleAnim = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-    );
+    _scaleAnim = Tween<double>(begin: 0.8, end: 1.0)
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
 
-    _slideAnim = Tween<double>(begin: 20, end: 0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
+    _slideAnim = Tween<double>(begin: 20, end: 0)
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
     _controller.forward();
     _navigate();
@@ -58,6 +51,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final logoSize = context.fs(84, max: 130);
+
     return Scaffold(
       body: Center(
         child: AnimatedBuilder(
@@ -73,72 +68,64 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   children: [
                     // Logo emoji with glow
                     Container(
-                      width: 100,
-                      height: 100,
+                      width: logoSize,
+                      height: logoSize,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: Colors.purpleAccent.withOpacity(0.15),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.purpleAccent.withOpacity(0.3),
-                            blurRadius: 40,
-                            spreadRadius: 10,
+                            blurRadius: context.fs(32, max: 50),
+                            spreadRadius: context.fs(8, max: 13),
                           ),
                         ],
                       ),
-                      child: const Center(
-                        child: Text(
-                          '🎵',
-                          style: TextStyle(fontSize: 52),
-                        ),
+                      child: Center(
+                        child: Text('🎵', style: TextStyle(fontSize: context.ff(42, max: 64))),
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    Gap(context.fs(20, max: 30)),
 
                     // App name
                     Text(
                       'SongCatcher',
-                      style: Theme.of(context)
-                          .textTheme
-                          .displaySmall
-                          ?.copyWith(
+                      style: TextStyle(
                         color: Colors.purpleAccent,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1,
+                        fontSize: context.ff(30, max: 46),
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    Gap(context.fs(5, max: 8)),
 
                     // Tagline
-                    const Text(
+                    Text(
                       'Catch the song before anyone else!',
                       style: TextStyle(
                         color: Colors.white38,
-                        fontSize: 13,
+                        fontSize: context.ff(12, max: 15),
                         letterSpacing: 0.5,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    Gap(context.fs(5, max: 8)),
 
                     // Domain
-                    const Text(
+                    Text(
                       'songcatcher.io',
                       style: TextStyle(
                         color: Colors.white24,
-                        fontSize: 11,
+                        fontSize: context.ff(10, max: 12),
                         letterSpacing: 2,
                       ),
                     ),
-                    const SizedBox(height: 64),
+                    Gap(context.fs(52, max: 76)),
 
                     // Loading indicator
-                    const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        color: Colors.purpleAccent,
-                        strokeWidth: 2.5,
-                      ),
+                    SizedBox(
+                      width: context.ff(20, max: 26),
+                      height: context.ff(20, max: 26),
+                      child: const CircularProgressIndicator(color: Colors.purpleAccent, strokeWidth: 2.5),
                     ),
                   ],
                 ),

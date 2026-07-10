@@ -1,35 +1,49 @@
 import 'dart:math';
 
 class ScoringService {
-  static const _baseScore      = 1000;
-  static const _firstBonus     = 500;
-  static const _speedMaxBonus  = 300;
-  static const _minScore       = 50;
+  // Max points awarded per reveal stage — earlier/shorter clip guessed
+  // correctly is worth more. Difficulty multiplier scales on top of this.
+  static const Map<int, int> _stageCeilings = {
+    2: 1000,
+    3: 800,
+    5: 500,
+    10: 250,
+  };
 
-  // ── Score calculation (was in Cloud Function) ────────────────────────────
+  static const Map<String, double> _difficultyMultiplier = {
+    'easy': 1.0,
+    'medium': 1.25,
+    'hard': 1.5,
+  };
+
+  static const _firstBonus = 100;
+  static const _minScore = 25;
+
+  // ── Score calculation ────────────────────────────────────────────────────
+  //
+  // Points are capped by which reveal stage the clip was on when guessed
+  // (earlier stage = higher ceiling), then scaled up by song difficulty
+  // (harder songs = more points, since they're rarer/less well-known),
+  // then a small speed bonus within that stage, plus a first-to-guess bonus.
 
   int calculatePoints({
     required int revealedSeconds,
     required int elapsedMs,
     required bool isFirstCorrect,
+    required String songDifficulty,
   }) {
-    final penalty = _clipPenalty(revealedSeconds);
-    final speed   = _speedBonus(elapsedMs);
+    final ceiling = _stageCeilings[revealedSeconds] ?? _stageCeilings.values.last;
+    final multiplier = _difficultyMultiplier[songDifficulty] ?? 1.0;
 
-    int points = _baseScore - penalty + speed;
+    // Small in-stage speed bonus: guessing right at the start of a stage
+    // scores closer to the ceiling than guessing right before it ends.
+    final speedRatio = (1 - (elapsedMs / 15000)).clamp(0.0, 1.0);
+    final speedAdjusted = ceiling * (0.7 + 0.3 * speedRatio);
+
+    int points = (speedAdjusted * multiplier).round();
     if (isFirstCorrect) points += _firstBonus;
-    return points.clamp(_minScore, 2000);
-  }
 
-  int _clipPenalty(int seconds) {
-    if (seconds <= 3) return 0;
-    if (seconds <= 5) return 200;
-    return 400;
-  }
-
-  int _speedBonus(int elapsedMs) {
-    final ratio = (1 - (elapsedMs - 3000) / 12000).clamp(0.0, 1.0);
-    return (ratio * _speedMaxBonus).round();
+    return points.clamp(_minScore, 1000);
   }
 
   // ── Fuzzy guess matching ─────────────────────────────────────────────────

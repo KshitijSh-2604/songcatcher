@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../models/player.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/room_provider.dart';
+import '../../utils/responsive.dart';
 
 class ResultsScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -21,12 +22,8 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen>
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _fadeAnim = CurvedAnimation(
-        parent: _ctrl, curve: Curves.easeIn);
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
+    _fadeAnim = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
     _ctrl.forward();
   }
 
@@ -46,79 +43,22 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen>
         child: FadeTransition(
           opacity: _fadeAnim,
           child: playersAsync.when(
-            loading: () =>
-            const Center(child: CircularProgressIndicator()),
-            error: (e, _) =>
-                Center(child: Text('Error: $e')),
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Error: $e')),
             data: (players) {
-              final sorted = [...players]
-                ..sort((a, b) => b.score.compareTo(a.score));
-
-              final winner =
-              sorted.isNotEmpty ? sorted.first : null;
-              final myRank =
-                  sorted.indexWhere((p) => p.id == user?.uid) + 1;
+              final sorted = [...players]..sort((a, b) => b.score.compareTo(a.score));
+              final winner = sorted.isNotEmpty ? sorted.first : null;
+              final myRank = sorted.indexWhere((p) => p.id == user?.uid) + 1;
               final iWon = winner?.id == user?.uid;
 
-              return Center(
-                child: ConstrainedBox(
-                  constraints:
-                  const BoxConstraints(maxWidth: 500),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 12),
-
-                        // ── Winner Banner ─────────────────────────────
-                        _WinnerBanner(
-                          winner: winner,
-                          iWon: iWon,
-                          myRank: myRank,
-                        ),
-                        const SizedBox(height: 28),
-
-                        // ── Final Scores Header ───────────────────────
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'Final Scores',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 17,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        // ── Scores List ───────────────────────────────
-                        Expanded(
-                          child: ListView.separated(
-                            itemCount: sorted.length,
-                            separatorBuilder: (_, __) =>
-                            const SizedBox(height: 8),
-                            itemBuilder: (_, i) {
-                              final p = sorted[i];
-                              final isMe = p.id == user?.uid;
-                              return _ScoreCard(
-                                player: p,
-                                rank: i + 1,
-                                isMe: isMe,
-                                animDelay:
-                                Duration(milliseconds: i * 80),
-                              );
-                            },
-                          ),
-                        ),
-
-                        const SizedBox(height: 20),
-
-                        // ── Actions ───────────────────────────────────
-                        _ActionButtons(roomId: widget.roomId),
-                      ],
-                    ),
-                  ),
-                ),
+              return PageShell(
+                scrollable: !context.twoColumn,
+                maxWidth: context.twoColumn ? 1000 : 500,
+                child: context.twoColumn
+                    ? _WideResults(sorted: sorted, winner: winner, iWon: iWon,
+                    myRank: myRank, user: user, roomId: widget.roomId)
+                    : _NarrowResults(sorted: sorted, winner: winner, iWon: iWon,
+                    myRank: myRank, user: user, roomId: widget.roomId),
               );
             },
           ),
@@ -128,18 +68,122 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen>
   }
 }
 
-// ── Winner Banner ──────────────────────────────────────────────────────────
+// ── Narrow layout — stacked, scrollable ─────────────────────────────────────
+
+class _NarrowResults extends StatelessWidget {
+  final List<Player> sorted;
+  final Player? winner;
+  final bool iWon;
+  final int myRank;
+  final dynamic user;
+  final String roomId;
+
+  const _NarrowResults({
+    required this.sorted, required this.winner, required this.iWon,
+    required this.myRank, required this.user, required this.roomId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final listHeight = context.screenHeight * 0.4;
+
+    return Column(
+      children: [
+        Gap(context.fs(8, max: 14)),
+        _WinnerBanner(winner: winner, iWon: iWon, myRank: myRank),
+        Gap(context.fs(20, max: 32)),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text('Final Scores',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: context.ff(15, max: 19))),
+        ),
+        Gap(context.fs(10, max: 14)),
+        SizedBox(
+          height: listHeight,
+          child: ListView.separated(
+            itemCount: sorted.length,
+            separatorBuilder: (_, __) => Gap(context.fs(6, max: 10)),
+            itemBuilder: (_, i) => _ScoreCard(
+              player: sorted[i], rank: i + 1, isMe: sorted[i].id == user?.uid,
+              animDelay: Duration(milliseconds: i * 80),
+            ),
+          ),
+        ),
+        Gap(context.fs(16, max: 24)),
+        _ActionButtons(roomId: roomId),
+      ],
+    );
+  }
+}
+
+// ── Wide layout — two columns, no scroll ────────────────────────────────────
+
+class _WideResults extends StatelessWidget {
+  final List<Player> sorted;
+  final Player? winner;
+  final bool iWon;
+  final int myRank;
+  final dynamic user;
+  final String roomId;
+
+  const _WideResults({
+    required this.sorted, required this.winner, required this.iWon,
+    required this.myRank, required this.user, required this.roomId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: context.screenHeight * 0.78,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _WinnerBanner(winner: winner, iWon: iWon, myRank: myRank),
+                Gap(context.fs(24, max: 36)),
+                _ActionButtons(roomId: roomId),
+              ],
+            ),
+          ),
+          SizedBox(width: context.fs(24, max: 48)),
+          Expanded(
+            flex: 5,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Final Scores',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: context.ff(16, max: 20))),
+                Gap(context.fs(10, max: 16)),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: sorted.length,
+                    separatorBuilder: (_, __) => Gap(context.fs(6, max: 10)),
+                    itemBuilder: (_, i) => _ScoreCard(
+                      player: sorted[i], rank: i + 1, isMe: sorted[i].id == user?.uid,
+                      animDelay: Duration(milliseconds: i * 80),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Winner Banner ─────────────────────────────────────────────────────────────
 
 class _WinnerBanner extends StatelessWidget {
   final Player? winner;
   final bool iWon;
   final int myRank;
-
-  const _WinnerBanner({
-    required this.winner,
-    required this.iWon,
-    required this.myRank,
-  });
+  const _WinnerBanner({required this.winner, required this.iWon, required this.myRank});
 
   @override
   Widget build(BuildContext context) {
@@ -147,74 +191,51 @@ class _WinnerBanner extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(context.fs(18, max: 32)),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
           colors: iWon
-              ? [
-            Colors.amber.withOpacity(0.25),
-            Colors.orange.withOpacity(0.1),
-          ]
-              : [
-            Colors.purpleAccent.withOpacity(0.15),
-            Colors.deepPurple.withOpacity(0.08),
-          ],
+              ? [Colors.amber.withOpacity(0.25), Colors.orange.withOpacity(0.1)]
+              : [Colors.purpleAccent.withOpacity(0.15), Colors.deepPurple.withOpacity(0.08)],
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(context.fs(16, max: 24)),
         border: Border.all(
-          color: iWon
-              ? Colors.amber.withOpacity(0.4)
-              : Colors.purpleAccent.withOpacity(0.3),
-        ),
+            color: iWon ? Colors.amber.withOpacity(0.4) : Colors.purpleAccent.withOpacity(0.3)),
       ),
       child: Column(
         children: [
+          Text(iWon ? '🏆' : '🎵', style: TextStyle(fontSize: context.ff(42, max: 64))),
+          Gap(context.fs(8, max: 14)),
           Text(
-            iWon ? '🏆' : '🎵',
-            style: const TextStyle(fontSize: 52),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            iWon
-                ? 'You won!'
-                : '${winner!.displayName} wins!',
+            iWon ? 'You won!' : '${winner!.displayName} wins!',
             style: TextStyle(
-              fontSize: 24,
+              fontSize: context.ff(19, max: 28),
               fontWeight: FontWeight.w900,
               color: iWon ? Colors.amber : Colors.white,
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 6),
+          Gap(context.fs(5, max: 8)),
           Text(
-            iWon
-                ? '🎶 Amazing catching skills!'
-                : 'You finished #$myRank — better luck next round!',
-            style: const TextStyle(
-                color: Colors.white54, fontSize: 13),
+            iWon ? '🎶 Amazing catching skills!' : 'You finished #$myRank — better luck next round!',
+            style: TextStyle(color: Colors.white54, fontSize: context.ff(12, max: 15)),
             textAlign: TextAlign.center,
           ),
-
-          // Winner's score highlight
           if (iWon) ...[
-            const SizedBox(height: 14),
+            Gap(context.fs(12, max: 18)),
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 20, vertical: 8),
+              padding: EdgeInsets.symmetric(
+                  horizontal: context.fs(16, max: 24), vertical: context.fs(7, max: 11)),
               decoration: BoxDecoration(
                 color: Colors.amber.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                    color: Colors.amber.withOpacity(0.4)),
+                border: Border.all(color: Colors.amber.withOpacity(0.4)),
               ),
               child: Text(
                 '${winner!.score} pts · ${winner!.correctGuesses} songs caught',
-                style: const TextStyle(
-                  color: Colors.amber,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(
+                    color: Colors.amber, fontWeight: FontWeight.bold, fontSize: context.ff(12, max: 15)),
               ),
             ),
           ],
@@ -224,7 +245,7 @@ class _WinnerBanner extends StatelessWidget {
   }
 }
 
-// ── Score Card ─────────────────────────────────────────────────────────────
+// ── Score Card ─────────────────────────────────────────────────────────────────
 
 class _ScoreCard extends StatelessWidget {
   final Player player;
@@ -233,22 +254,15 @@ class _ScoreCard extends StatelessWidget {
   final Duration animDelay;
 
   const _ScoreCard({
-    required this.player,
-    required this.rank,
-    required this.isMe,
-    required this.animDelay,
+    required this.player, required this.rank, required this.isMe, required this.animDelay,
   });
 
   String get _medal {
     switch (rank) {
-      case 1:
-        return '🥇';
-      case 2:
-        return '🥈';
-      case 3:
-        return '🥉';
-      default:
-        return '$rank.';
+      case 1: return '🥇';
+      case 2: return '🥈';
+      case 3: return '🥉';
+      default: return '$rank.';
     }
   }
 
@@ -260,21 +274,18 @@ class _ScoreCard extends StatelessWidget {
       curve: Curves.easeOut,
       builder: (_, value, child) => Opacity(
         opacity: value,
-        child: Transform.translate(
-          offset: Offset(0, (1 - value) * 16),
-          child: child,
-        ),
+        child: Transform.translate(offset: Offset(0, (1 - value) * 16), child: child),
       ),
       child: Container(
-        padding: const EdgeInsets.symmetric(
-            horizontal: 16, vertical: 14),
+        padding: EdgeInsets.symmetric(
+            horizontal: context.fs(12, max: 20), vertical: context.fs(10, max: 16)),
         decoration: BoxDecoration(
           color: isMe
               ? Colors.purpleAccent.withOpacity(0.12)
               : rank == 1
               ? Colors.amber.withOpacity(0.06)
               : Colors.white.withOpacity(0.04),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(context.fs(10, max: 16)),
           border: Border.all(
             color: isMe
                 ? Colors.purpleAccent.withOpacity(0.5)
@@ -286,107 +297,69 @@ class _ScoreCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Medal / rank
             SizedBox(
-              width: 40,
-              child: Text(
-                _medal,
-                style: const TextStyle(fontSize: 22),
-                textAlign: TextAlign.center,
-              ),
+              width: context.fs(30, max: 44),
+              child: Text(_medal,
+                  style: TextStyle(fontSize: context.ff(18, max: 24)), textAlign: TextAlign.center),
             ),
-            const SizedBox(width: 8),
-
-            // Avatar
+            SizedBox(width: context.fs(6, max: 10)),
             CircleAvatar(
-              radius: 20,
-              backgroundColor: isMe
-                  ? Colors.purpleAccent.withOpacity(0.25)
-                  : Colors.white.withOpacity(0.08),
-              child: Text(
-                player.displayName[0].toUpperCase(),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: isMe
-                      ? Colors.purpleAccent
-                      : Colors.white60,
-                ),
-              ),
+              radius: context.ff(16, max: 22),
+              backgroundColor:
+              isMe ? Colors.purpleAccent.withOpacity(0.25) : Colors.white.withOpacity(0.08),
+              child: Text(player.displayName[0].toUpperCase(),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: context.ff(13, max: 16),
+                      color: isMe ? Colors.purpleAccent : Colors.white60)),
             ),
-            const SizedBox(width: 12),
-
-            // Name + stats
+            SizedBox(width: context.fs(10, max: 16)),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Text(
-                        player.displayName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                      Flexible(
+                        child: Text(player.displayName,
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600, fontSize: context.ff(13, max: 16)),
+                            overflow: TextOverflow.ellipsis),
                       ),
                       if (isMe) ...[
-                        const SizedBox(width: 6),
+                        SizedBox(width: context.fs(5, max: 8)),
                         Container(
-                          padding:
-                          const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 1),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: context.fs(5, max: 8), vertical: context.fs(1, max: 2)),
                           decoration: BoxDecoration(
-                            color: Colors.purpleAccent
-                                .withOpacity(0.2),
-                            borderRadius:
-                            BorderRadius.circular(8),
+                            color: Colors.purpleAccent.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Text(
-                            'you',
-                            style: TextStyle(
-                              color: Colors.purpleAccent,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          child: Text('you',
+                              style: TextStyle(
+                                  color: Colors.purpleAccent,
+                                  fontSize: context.ff(9, max: 11),
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ],
                     ],
                   ),
                   Text(
                     '${player.correctGuesses} song${player.correctGuesses == 1 ? '' : 's'} caught',
-                    style: const TextStyle(
-                      color: Colors.white38,
-                      fontSize: 11,
-                    ),
+                    style: TextStyle(color: Colors.white38, fontSize: context.ff(10, max: 12)),
                   ),
                 ],
               ),
             ),
-
-            // Score
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  '${player.score}',
-                  style: TextStyle(
-                    color: rank == 1
-                        ? Colors.amber
-                        : Colors.purpleAccent,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 20,
-                  ),
-                ),
-                const Text(
-                  'pts',
-                  style: TextStyle(
-                    color: Colors.white38,
-                    fontSize: 11,
-                  ),
-                ),
+                Text('${player.score}',
+                    style: TextStyle(
+                        color: rank == 1 ? Colors.amber : Colors.purpleAccent,
+                        fontWeight: FontWeight.w900,
+                        fontSize: context.ff(17, max: 22))),
+                Text('pts', style: TextStyle(color: Colors.white38, fontSize: context.ff(10, max: 12))),
               ],
             ),
           ],
@@ -396,7 +369,7 @@ class _ScoreCard extends StatelessWidget {
   }
 }
 
-// ── Action Buttons ─────────────────────────────────────────────────────────
+// ── Action Buttons ─────────────────────────────────────────────────────────────
 
 class _ActionButtons extends StatelessWidget {
   final String roomId;
@@ -406,46 +379,34 @@ class _ActionButtons extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Play again (goes back to home — host creates new room)
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: () => context.go('/home'),
-            icon: const Icon(Icons.replay_rounded),
-            label: const Text('Play Again'),
+            icon: Icon(Icons.replay_rounded, size: context.ff(18, max: 22)),
+            label: Text('Play Again', style: TextStyle(fontSize: context.ff(14, max: 16))),
             style: FilledButton.styleFrom(
               backgroundColor: Colors.purpleAccent,
-              padding:
-              const EdgeInsets.symmetric(vertical: 14),
+              padding: EdgeInsets.symmetric(vertical: context.fs(12, max: 18)),
             ),
           ),
         ),
-        const SizedBox(height: 10),
-
-        // Back to home
+        Gap(context.fs(8, max: 12)),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: () => context.go('/home'),
-            icon: const Icon(Icons.home_outlined, size: 18),
-            label: const Text('Back to Home'),
+            icon: Icon(Icons.home_outlined, size: context.ff(16, max: 20)),
+            label: Text('Back to Home', style: TextStyle(fontSize: context.ff(14, max: 16))),
             style: OutlinedButton.styleFrom(
-              padding:
-              const EdgeInsets.symmetric(vertical: 14),
+              padding: EdgeInsets.symmetric(vertical: context.fs(12, max: 18)),
             ),
           ),
         ),
-
-        const SizedBox(height: 16),
-
-        // Fun footer
-        const Text(
+        Gap(context.fs(14, max: 20)),
+        Text(
           'songcatcher.io — Catch the song first!',
-          style: TextStyle(
-            color: Colors.white24,
-            fontSize: 11,
-            letterSpacing: 0.5,
-          ),
+          style: TextStyle(color: Colors.white24, fontSize: context.ff(10, max: 12), letterSpacing: 0.5),
         ),
       ],
     );

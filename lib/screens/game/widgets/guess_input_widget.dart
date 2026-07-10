@@ -2,11 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../../models/room.dart';
 import '../../../services/game_service.dart';
+import '../../../utils/responsive.dart';
 
 class GuessInputWidget extends StatefulWidget {
   final String roomId;
   final Room room;
   final String userId;
+  final String displayName;
   final GameService gameService;
 
   const GuessInputWidget({
@@ -14,6 +16,7 @@ class GuessInputWidget extends StatefulWidget {
     required this.roomId,
     required this.room,
     required this.userId,
+    required this.displayName,
     required this.gameService,
   });
 
@@ -36,9 +39,7 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
   @override
   void didUpdateWidget(GuessInputWidget old) {
     super.didUpdateWidget(old);
-    // Reset on new round
-    if (old.room.currentRound != widget.room.currentRound ||
-        old.room.currentSong != widget.room.currentSong) {
+    if (old.room.currentRound != widget.room.currentRound || old.room.currentSong != widget.room.currentSong) {
       setState(() => _guessedCorrectly = false);
       _ctrl.clear();
       _checkAlreadyGuessed();
@@ -60,13 +61,15 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
         .doc(widget.userId)
         .get();
     if (mounted && doc.exists) {
-      setState(() => _guessedCorrectly =
-          doc.data()?['hasGuessedCorrectly'] ?? false);
+      setState(() => _guessedCorrectly = doc.data()?['hasGuessedCorrectly'] ?? false);
     }
   }
 
   Future<void> _submitGuess() async {
     final guess = _ctrl.text.trim();
+    // Locked out once already correct this round — this is the lockout
+    // bug #9 asked for, enforced both here and (defensively) server-side
+    // in GameService.submitGuess.
     if (guess.isEmpty || _submitting || _guessedCorrectly) return;
 
     setState(() => _submitting = true);
@@ -76,6 +79,7 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
       final correct = await widget.gameService.submitGuess(
         roomId: widget.roomId,
         userId: widget.userId,
+        displayName: widget.displayName,
         guess: guess,
       );
 
@@ -86,10 +90,7 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
             content: const Row(
               children: [
                 Text('🎉 '),
-                Text(
-                  'You caught it!',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
+                Text('You caught it!', style: TextStyle(fontWeight: FontWeight.bold)),
               ],
             ),
             backgroundColor: Colors.green.shade700,
@@ -108,26 +109,19 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
   Widget build(BuildContext context) {
     if (_guessedCorrectly) {
       return Container(
-        padding: const EdgeInsets.symmetric(
-            horizontal: 20, vertical: 16),
+        padding: EdgeInsets.symmetric(horizontal: context.fs(16, max: 24), vertical: context.fs(13, max: 20)),
         decoration: BoxDecoration(
           color: Colors.green.withOpacity(0.1),
-          border: Border(
-              top: BorderSide(
-                  color: Colors.green.withOpacity(0.3))),
+          border: Border(top: BorderSide(color: Colors.green.withOpacity(0.3))),
         ),
-        child: const Row(
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_rounded,
-                color: Colors.greenAccent, size: 20),
-            SizedBox(width: 10),
+            Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: context.ff(18, max: 24)),
+            SizedBox(width: context.fs(8, max: 12)),
             Text(
               'You caught it! Waiting for others...',
-              style: TextStyle(
-                color: Colors.greenAccent,
-                fontWeight: FontWeight.w600,
-              ),
+              style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w600, fontSize: context.ff(13, max: 16)),
             ),
           ],
         ),
@@ -135,10 +129,15 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
     }
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
-        border: const Border(top: BorderSide(color: Colors.white12)),
+      padding: EdgeInsets.fromLTRB(
+        context.fs(10, max: 18),
+        context.fs(9, max: 14),
+        context.fs(10, max: 18),
+        context.fs(10, max: 16),
+      ),
+      decoration: const BoxDecoration(
+        color: Color(0x08FFFFFF),
+        border: Border(top: BorderSide(color: Colors.white12)),
       ),
       child: Row(
         children: [
@@ -149,31 +148,29 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
               enabled: !_submitting,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _submitGuess(),
+              style: TextStyle(fontSize: context.ff(14, max: 17)),
               decoration: InputDecoration(
                 hintText: 'Song title or artist name...',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 18, vertical: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
+                contentPadding: EdgeInsets.symmetric(horizontal: context.fs(14, max: 22), vertical: context.fs(10, max: 15)),
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: context.fs(6, max: 10)),
           FilledButton(
             onPressed: _submitting ? null : _submitGuess,
             style: FilledButton.styleFrom(
               backgroundColor: Colors.purpleAccent,
               shape: const CircleBorder(),
-              padding: const EdgeInsets.all(14),
+              padding: EdgeInsets.all(context.fs(12, max: 17)),
             ),
             child: _submitting
-                ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.send_rounded, size: 20),
+                ? SizedBox(
+              width: context.ff(16, max: 20),
+              height: context.ff(16, max: 20),
+              child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+                : Icon(Icons.send_rounded, size: context.ff(18, max: 23)),
           ),
         ],
       ),

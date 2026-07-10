@@ -9,7 +9,6 @@ import 'screens/home/home_screen.dart';
 import 'screens/lobby/lobby_screen.dart';
 import 'screens/game/game_screen.dart';
 import 'screens/results/results_screen.dart';
-import 'screens/admin/seed_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authAsync = ref.watch(authProvider);
@@ -68,10 +67,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => ResultsScreen(
           roomId: state.pathParameters['roomId']!,
         ),
-      ),
-      GoRoute(
-        path: '/admin/seed',
-        builder: (_, __) => const SeedScreen(),
       ),
     ],
 

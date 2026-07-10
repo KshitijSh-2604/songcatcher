@@ -7,97 +7,45 @@ import '../models/song.dart';
 /// Uses Apple's iTunes Search API — no account, no API key, completely free.
 /// Endpoint: https://itunes.apple.com/search
 /// Returns 30-second M4A preview URLs for ~95% of tracks.
+///
+/// Bollywood-only per app scope — genre is fixed, so queries are organized
+/// by decade instead of by genre, and callers filter by yearFrom/yearTo.
+/// Difficulty is not host-selectable — it's derived per song and used to
+/// scale points, with the most obscure tier excluded entirely.
 class ItunesService {
   final _rand = Random();
 
-  static const _queries = {
-    'Pop': [
-      'pop hits 2024', 'pop hits 2023', 'pop 2022', 'pop hits 2021',
-      'pop 2020', 'pop 2018 2019', 'pop 2015 2016 2017',
-      'pop hits 2010s', 'pop hits 2000s', 'pop classics 1990s', 'pop 1980s',
-    ],
-    'Hip-Hop': [
-      'rap 2024', 'hip hop 2023', 'rap hits 2022', 'hip hop 2021',
-      'rap 2020', 'hip hop 2018 2019', 'rap 2015 2016 2017',
-      'hip hop 2010s', 'rap classics 2000s', 'rap classics 1990s',
-    ],
-    'Rock': [
-      'rock hits 2024', 'rock 2022 2023', 'rock hits 2020',
-      'rock 2010s', 'rock 2000s', 'rock classics 1990s',
-      'rock classics 1980s', 'rock classics 1970s', 'alternative rock',
-    ],
-    'R&B': [
-      'rnb 2024', 'rnb hits 2022 2023', 'rnb 2020 2021',
-      'rnb 2018 2019', 'rnb hits 2015 2016 2017',
-      'soul rnb 2010s', 'rnb 2000s', 'soul classics',
-    ],
-    'Electronic': [
-      'edm 2024', 'electronic dance 2023', 'edm hits 2022',
-      'house music 2020 2021', 'electronic 2018 2019', 'dance hits 2010s',
-    ],
-    'Country': [
-      'country hits 2024', 'country 2022 2023', 'country 2020 2021',
-      'country hits 2018 2019', 'country 2010s', 'country classics 2000s',
-    ],
-    'K-Pop': [
-      'kpop 2024', 'kpop hits 2023', 'kpop 2022',
-      'kpop 2020 2021', 'kpop 2018 2019', 'kpop 2016 2017', 'kpop 2013 2014 2015',
-    ],
-    'Reggaeton': [
-      'reggaeton 2024', 'reggaeton 2022 2023', 'reggaeton 2020 2021',
-      'reggaeton 2018 2019', 'reggaeton hits 2015 2016 2017', 'reggaeton 2010s',
-    ],
-    'Latin Pop': [
-      'latin pop 2024', 'latin pop 2022 2023', 'latin hits 2020 2021',
-      'latin pop 2018 2019', 'musica latina 2015 2016 2017',
-    ],
-    'Bollywood': [
-      'bollywood 2024', 'bollywood hits 2022 2023', 'bollywood 2020 2021',
-      'bollywood 2018 2019', 'bollywood hits 2015 2016 2017',
-      'bollywood 2010 2011 2012', 'bollywood classics 2000s',
-    ],
-    'Indie': [
-      'indie pop 2024', 'indie hits 2022 2023', 'indie 2020 2021',
-      'indie alternative 2018 2019', 'indie pop 2015 2016 2017',
-    ],
-    'Metal': [
-      'heavy metal 2020s', 'metal rock 2010s', 'metal 2000s',
-      'heavy metal classics 1990s', 'classic metal 1980s',
-    ],
-    'Jazz': ['jazz classics', 'smooth jazz', 'jazz hits', 'jazz standards popular'],
-    'Reggae': ['reggae hits', 'reggae classics', 'reggae 2020s'],
-    'Classics': [
-      'greatest hits 1980s', 'greatest hits 1970s',
-      'greatest hits 1960s', 'golden oldies',
-    ],
-    'Mix': [
-      'top hits 2024', 'top hits 2023', 'chart hits 2022',
-      'viral hits 2021', 'greatest hits popular', 'top hits 2020',
-      'kpop hits 2023', 'reggaeton 2023', 'bollywood 2023',
-      'hip hop 2023', 'rock hits 2022',
-    ],
+  static const String _base = 'https://itunes.apple.com';
+
+  static const Map<int, List<String>> _decadeQueries = {
+    1950: ['bollywood classics 1950s', 'old hindi songs 1950s', 'hindi film songs 1950s'],
+    1960: ['bollywood classics 1960s', 'old hindi songs 1960s', 'hindi film songs 1960s'],
+    1970: ['bollywood classics 1970s', 'old hindi songs 1970s', 'hindi film songs 1970s'],
+    1980: ['bollywood classics 1980s', 'old hindi songs 1980s', 'hindi film songs 1980s'],
+    1990: ['bollywood hits 1990s', 'hindi songs 1990s', 'bollywood 90s'],
+    2000: ['bollywood hits 2000s', 'hindi songs 2000 2001 2002', 'bollywood 2003 2004 2005', 'bollywood 2006 2007 2008 2009'],
+    2010: ['bollywood hits 2010 2011 2012', 'bollywood 2013 2014 2015', 'bollywood 2016 2017', 'bollywood hits 2018 2019'],
+    2020: ['bollywood 2020 2021', 'bollywood hits 2022 2023', 'bollywood 2024'],
   };
 
   // ── iTunes search ──────────────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> _search(String term,
-      {int limit = 50, int offset = 0}) async {
+  Future<List<Map<String, dynamic>>> _search(String term, {int limit = 50, int offset = 0}) async {
     final encoded = Uri.encodeQueryComponent(term);
     final url = Uri.parse(
       '$_base/search?term=$encoded&media=music&entity=song'
-          '&limit=$limit&offset=$offset&country=US',
+          '&limit=$limit&offset=$offset&country=IN',
     );
 
     try {
       final res = await http.get(url, headers: {'Accept': 'application/json'});
       if (res.statusCode != 200) {
-        debugPrint('iTunes ${res.statusCode}: ${res.body.substring(0, 100)}');
+        debugPrint('iTunes ${res.statusCode}: ${res.body.substring(0, min(100, res.body.length))}');
         return [];
       }
       final data = jsonDecode(res.body);
       return List<Map<String, dynamic>>.from(
-        (data['results'] as List? ?? []).where((t) =>
-        t != null && (t['previewUrl'] as String?) != null),
+        (data['results'] as List? ?? []).where((t) => t != null && (t['previewUrl'] as String?) != null),
       );
     } catch (e) {
       debugPrint('iTunes search error: $e');
@@ -105,44 +53,40 @@ class ItunesService {
     }
   }
 
-  static const String _base = 'https://itunes.apple.com';
-
   // ── Convert iTunes track → Song ────────────────────────────────────────────
 
-  Song? _trackToSong(Map<String, dynamic> t,
-      {String? genre, String? language, int rank = 25}) {
+  Song? _trackToSong(Map<String, dynamic> t, {int rank = 25}) {
     final previewUrl = t['previewUrl'] as String?;
     if (previewUrl == null) return null;
 
-    final trackId   = (t['trackId'] as num?)?.toInt() ?? 0;
-    final title     = t['trackName']      as String? ?? '';
-    final artist    = t['artistName']     as String? ?? '';
-    final album     = t['collectionName'] as String? ?? '';
-    final albumArt  = (t['artworkUrl100'] as String? ?? '')
-        .replaceAll('100x100', '640x640');
-    final rawDate   = t['releaseDate']    as String? ?? '2000-01-01';
-    final trackGenre = t['primaryGenreName'] as String? ?? genre ?? 'Pop';
-    final year      = int.tryParse(rawDate.split('-').first) ?? 2000;
-    final decade    = '${(year ~/ 10) * 10}s';
+    final trackId = (t['trackId'] as num?)?.toInt() ?? 0;
+    final title = t['trackName'] as String? ?? '';
+    final artist = t['artistName'] as String? ?? '';
+    final album = t['collectionName'] as String? ?? '';
+    final albumArt = (t['artworkUrl100'] as String? ?? '').replaceAll('100x100', '640x640');
+    final rawDate = t['releaseDate'] as String? ?? '2000-01-01';
+    final year = int.tryParse(rawDate.split('-').first) ?? 2000;
+    final decade = '${(year ~/ 10) * 10}s';
     final difficulty = _getDifficulty(rank, rawDate);
 
     return Song(
-      id:            'itunes_$trackId',
-      title:         title,
-      artist:        artist,
-      album:         album,
-      audioUrl:      previewUrl,
-      albumArtUrl:   albumArt,
-      genre:         genre ?? trackGenre,
-      language:      language ?? _guessLanguage(trackGenre),
-      decade:        decade,
-      difficulty:    difficulty,
-      popularity:    (50 - rank).clamp(0, 100),
+      id: 'itunes_$trackId',
+      title: title,
+      artist: artist,
+      album: album,
+      audioUrl: previewUrl,
+      albumArtUrl: albumArt,
+      genre: 'Bollywood',
+      language: 'Hindi',
+      decade: decade,
+      difficulty: difficulty,
+      popularity: (50 - rank).clamp(0, 100),
       silenceOffset: 0,
-      hint1:         '${genre ?? trackGenre} song',
-      hint2:         'Released in the $decade',
-      hint3:         'By $artist',
-      spotifyId:     'itunes_$trackId',
+      hint1: 'Bollywood song',
+      hint2: 'Released in the $decade',
+      hint3: 'By $artist',
+      spotifyId: 'itunes_$trackId',
+      year: year,
     );
   }
 
@@ -150,8 +94,7 @@ class ItunesService {
 
   String _getDifficulty(int rank, String releaseDate) {
     final year = int.tryParse(releaseDate.split('-').first) ?? 2000;
-    final age  = DateTime.now().year - year;
-    // Combine search rank + era for rough difficulty estimate
+    final age = DateTime.now().year - year;
     final score = (50 - rank).clamp(0, 50) + (age > 25 ? 20 : age > 10 ? 8 : 0);
     if (score >= 40) return 'easy';
     if (score >= 25) return 'medium';
@@ -159,69 +102,80 @@ class ItunesService {
     return 'hardcore';
   }
 
-  String _guessLanguage(String genre) {
-    if (['K-Pop'].contains(genre)) return 'Korean';
-    if (['Bollywood'].contains(genre)) return 'Hindi';
-    if (['Reggaeton', 'Latin Pop', 'Salsa'].contains(genre)) return 'Spanish';
-    return 'English';
-  }
-
   // ── Public API ─────────────────────────────────────────────────────────────
 
+  /// Fetches Bollywood songs whose release year falls within [yearFrom, yearTo].
+  /// Difficulty is not chosen by the host — each song's difficulty is derived
+  /// from how well-known it is (search rank + era), and the pool here
+  /// deliberately excludes the "hardcore"/most-obscure tier so rounds never
+  /// hinge on a track nobody could reasonably know. Difficulty is instead
+  /// used later to scale how many points a correct guess is worth.
   Future<List<Song>> fetchSongsForRoom({
-    required String difficulty,
-    String? genre,
-    String? language,
+    required String genre, // kept for call-site compatibility; always Bollywood
+    required int yearFrom,
+    required int yearTo,
     int count = 20,
   }) async {
-    final resolvedGenre = (genre == null || genre.isEmpty || genre == 'Mix')
-        ? 'Mix'
-        : genre;
+    final decadeStarts = _decadeQueries.keys.where((d) => d + 9 >= yearFrom && d <= yearTo).toList()..sort();
 
-    final queries = List<String>.from(
-      _queries[resolvedGenre] ?? _queries['Mix']!,
-    )..shuffle(_rand);
+    final queries = <String>[];
+    for (final decade in decadeStarts) {
+      queries.addAll(_decadeQueries[decade]!);
+    }
+    if (queries.isEmpty) queries.addAll(_decadeQueries[2000]!);
+    queries.shuffle(_rand);
 
-    final List<Song> matched  = [];
-    final List<Song> fallback = [];
+    final List<Song> pool = [];
     final Set<int> seen = {};
 
     for (final query in queries) {
-      if (matched.length >= count && fallback.length >= count * 2) break;
+      if (pool.length >= count * 3) break;
 
-      // Fetch 2 pages per query
       for (final offset in [0, 50]) {
         final tracks = await _search(query, limit: 50, offset: offset);
 
         for (var i = 0; i < tracks.length; i++) {
-          final t  = tracks[i];
+          final t = tracks[i];
           final id = (t['trackId'] as num?)?.toInt() ?? 0;
           if (id == 0 || seen.contains(id)) continue;
           seen.add(id);
 
-          final song = _trackToSong(t,
-              genre: resolvedGenre == 'Mix' ? null : resolvedGenre,
-              language: language,
-              rank: i + offset);
+          final song = _trackToSong(t, rank: i + offset);
           if (song == null) continue;
 
-          fallback.add(song);
-          if (song.difficulty == difficulty) matched.add(song);
+          // Enforce the year range strictly — iTunes search terms are a
+          // coarse filter only; some off-decade results always leak in.
+          if (song.year < yearFrom || song.year > yearTo) continue;
+
+          // Skip the most obscure tier entirely — keep guesses fair.
+          if (song.difficulty == 'hardcore') continue;
+
+          pool.add(song);
         }
       }
     }
 
-    // Prefer difficulty-matched songs; fall back to anything
-    final pool = matched.length >= count ? matched : fallback;
-    pool.shuffle(_rand);
-    return pool.take(count).toList();
-  }
+    // Mix difficulties so rounds vary, but weight toward easier/medium songs
+    // so a randomized game doesn't skew too hard.
+    final easy = pool.where((s) => s.difficulty == 'easy').toList()..shuffle(_rand);
+    final medium = pool.where((s) => s.difficulty == 'medium').toList()..shuffle(_rand);
+    final hard = pool.where((s) => s.difficulty == 'hard').toList()..shuffle(_rand);
 
-  Future<List<Song>> fetchMixedSongs({int count = 20}) async {
-    return fetchSongsForRoom(
-      difficulty: 'medium',
-      genre: 'Mix',
-      count: count,
-    );
+    final mixed = <Song>[];
+    final easyCount = (count * 0.45).ceil();
+    final mediumCount = (count * 0.35).ceil();
+    final hardCount = count - easyCount - mediumCount;
+
+    mixed.addAll(easy.take(easyCount));
+    mixed.addAll(medium.take(mediumCount));
+    mixed.addAll(hard.take(hardCount));
+
+    if (mixed.length < count) {
+      final rest = pool.where((s) => !mixed.contains(s)).toList()..shuffle(_rand);
+      mixed.addAll(rest.take(count - mixed.length));
+    }
+
+    mixed.shuffle(_rand);
+    return mixed.take(count).toList();
   }
 }

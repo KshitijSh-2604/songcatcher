@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../utils/responsive.dart';
 
 class RoundTimerWidget extends StatefulWidget {
   final DateTime roundStartTime;
   final int revealedSeconds;
   final bool isHost;
+  final VoidCallback onRevealThree;
   final VoidCallback onRevealFive;
   final VoidCallback onRevealTen;
   final VoidCallback onRoundEnd;
@@ -14,6 +16,7 @@ class RoundTimerWidget extends StatefulWidget {
     required this.roundStartTime,
     required this.revealedSeconds,
     required this.isHost,
+    required this.onRevealThree,
     required this.onRevealFive,
     required this.onRevealTen,
     required this.onRoundEnd,
@@ -26,10 +29,12 @@ class RoundTimerWidget extends StatefulWidget {
 class _RoundTimerWidgetState extends State<RoundTimerWidget> {
   late Timer _timer;
   int _elapsed = 0;
-  // Phase durations in seconds: 3s clip → 15s, 5s clip → 15s, 10s clip → 20s
-  static const _phase1End = 15;
-  static const _phase2End = 30;
-  static const _phase3End = 50;
+
+  // Phase boundaries, in elapsed seconds since round start.
+  static const _phase1End = 12; // 2s clip window
+  static const _phase2End = 24; // 3s clip window
+  static const _phase3End = 40; // 5s clip window
+  static const _phase4End = 60; // 10s clip window — round ends after this
 
   @override
   void initState() {
@@ -44,12 +49,13 @@ class _RoundTimerWidgetState extends State<RoundTimerWidget> {
 
       if (!widget.isHost) return;
 
-      // Auto-reveal at phase boundaries
-      if (elapsed >= _phase1End && widget.revealedSeconds < 5) {
+      if (elapsed >= _phase1End && widget.revealedSeconds < 3) {
+        widget.onRevealThree();
+      } else if (elapsed >= _phase2End && widget.revealedSeconds < 5) {
         widget.onRevealFive();
-      } else if (elapsed >= _phase2End && widget.revealedSeconds < 10) {
+      } else if (elapsed >= _phase3End && widget.revealedSeconds < 10) {
         widget.onRevealTen();
-      } else if (elapsed >= _phase3End) {
+      } else if (elapsed >= _phase4End) {
         widget.onRoundEnd();
       }
     });
@@ -65,14 +71,13 @@ class _RoundTimerWidgetState extends State<RoundTimerWidget> {
     if (_elapsed < _phase1End) return _phase1End - _elapsed;
     if (_elapsed < _phase2End) return _phase2End - _elapsed;
     if (_elapsed < _phase3End) return _phase3End - _elapsed;
+    if (_elapsed < _phase4End) return _phase4End - _elapsed;
     return 0;
   }
 
-  String get _phaseLabel {
-    if (_elapsed < _phase1End) return '3s clip';
-    if (_elapsed < _phase2End) return '5s clip';
-    return '10s clip';
-  }
+  // Reflects the actual server-driven reveal state rather than guessing
+  // from elapsed time, so the label always matches what's really playing.
+  String get _phaseLabel => '${widget.revealedSeconds}s clip';
 
   Color get _timerColor {
     if (_remaining > 10) return Colors.green;
@@ -86,7 +91,7 @@ class _RoundTimerWidgetState extends State<RoundTimerWidget> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: EdgeInsets.symmetric(horizontal: context.fs(11, max: 16), vertical: context.fs(5, max: 8)),
           decoration: BoxDecoration(
             color: _timerColor.withOpacity(0.15),
             borderRadius: BorderRadius.circular(20),
@@ -94,21 +99,14 @@ class _RoundTimerWidgetState extends State<RoundTimerWidget> {
           ),
           child: Row(
             children: [
-              Icon(Icons.timer, size: 16, color: _timerColor),
-              const SizedBox(width: 6),
+              Icon(Icons.timer, size: context.ff(14, max: 18), color: _timerColor),
+              SizedBox(width: context.fs(5, max: 8)),
               Text(
                 '${_remaining}s',
-                style: TextStyle(
-                  color: _timerColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
+                style: TextStyle(color: _timerColor, fontWeight: FontWeight.bold, fontSize: context.ff(14, max: 18)),
               ),
-              const SizedBox(width: 8),
-              Text(
-                '($_phaseLabel)',
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
+              SizedBox(width: context.fs(6, max: 10)),
+              Text('($_phaseLabel)', style: TextStyle(color: Colors.white54, fontSize: context.ff(11, max: 13))),
             ],
           ),
         ),
