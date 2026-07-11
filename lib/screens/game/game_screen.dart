@@ -15,6 +15,8 @@ import 'widgets/guess_history_widget.dart';
 import 'widgets/scoreboard_widget.dart';
 import 'widgets/round_reveal_widget.dart';
 import 'widgets/round_timer_widget.dart';
+// TODO: import your chat widget here once you paste it, e.g.:
+// import 'widgets/chat_widget.dart';
 
 class GameScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -28,17 +30,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   final _audioService = SongAudioService();
   final _gameService  = GameService();
 
-  // ── State tracking ────────────────────────────────────────────────────────
   String? _loadedSongId;
   bool    _navigating  = false;
   bool    _showReveal  = false;
   int     _prevRound   = -1;
   int     _prevRevealedSeconds = -1;
 
-  // 30-second per-stage auto-advance timer (host only).
+  // Prevent double-fire of the all-guessed trigger within a single round.
+  bool _allGuessedTriggered = false;
+
   Timer? _stageTimer;
 
-  // Clip reveal stages, mirrored from GameService for local use.
   static const _stages = [2, 3, 5, 10];
 
   @override
@@ -54,8 +56,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final songData = room.currentSong;
     if (songData == null) return;
 
-    final songId       = songData['id']            as String? ?? '';
-    final audioUrl     = songData['audioUrl']      as String? ?? '';
+    final songId        = songData['id']             as String? ?? '';
+    final audioUrl      = songData['audioUrl']       as String? ?? '';
     final silenceOffset = (songData['silenceOffset'] as num?)?.toInt() ?? 0;
     if (audioUrl.isEmpty) return;
 
@@ -63,15 +65,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       _loadedSongId = songId;
       await _audioService.loadSong(audioUrl, silenceOffset: silenceOffset);
     }
-    // Always play the currently revealed clip length.
     _audioService.playClip(room.revealedSeconds);
   }
 
   // ── Stage timer (host only, 30 s per stage) ───────────────────────────────
-  //
-  // Called whenever the active stage changes. After 30 s the host client
-  // advances to the next stage automatically; if already at the last stage
-  // (10 s clip) it ends the round.
 
   void _startStageTimer(int currentStage, bool isHost) {
     _stageTimer?.cancel();
@@ -81,7 +78,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       if (!mounted) return;
       final idx = _stages.indexOf(currentStage);
       if (idx >= 0 && idx < _stages.length - 1) {
-        // Advance to next stage — room update will trigger auto-play + new timer.
+        // Not the last stage — advance clip length.
         await _gameService.revealMoreClip(widget.roomId, _stages[idx + 1]);
       } else {
         // Last stage (10 s) expired — end the round.
@@ -92,23 +89,37 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     });
   }
 
-  // ── Called when the song is loaded from ClipPlayerWidget ──────────────────
-  //
-  // Kept as a callback for ClipPlayerWidget backwards-compat; actual play
-  // is now driven by ref.listen detecting room changes.
-
-  Future<void> _onSongLoad(String songId, String audioUrl, int silenceOffset) async {
+  Future<void> _onSongLoad(
+      String songId, String audioUrl, int silenceOffset) async {
     if (_loadedSongId == songId) return;
     _loadedSongId = songId;
     await _audioService.loadSong(audioUrl, silenceOffset: silenceOffset);
   }
 
+  // ── Trigger reveal safely (deferred to next frame) ───────────────────────
+  //
+  // Using addPostFrameCallback means any in-progress widget rebuilds (e.g.
+  // GuessInputWidget finishing its async _onSubmit) complete first. This
+  // prevents the host's guess input from appearing frozen when it is the
+  // last player to guess and the all-guessed detection fires mid-await.
+
+  void _triggerReveal() {
+    if (_showReveal || _allGuessedTriggered) return;
+    _allGuessedTriggered = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _stageTimer?.cancel();
+      _audioService.stopClip();
+      _gameService.forceEndRoundIfActive(widget.roomId);
+      setState(() => _showReveal = true);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final roomAsync    = ref.watch(roomProvider(widget.roomId));
-    final playersAsync = ref.watch(playersProvider(widget.roomId));
-    final user         = ref.watch(currentUserProvider);
-    final isHost       = user?.uid != null &&
+    final roomAsync = ref.watch(roomProvider(widget.roomId));
+    final user      = ref.watch(currentUserProvider);
+    final isHost    = user?.uid != null &&
         roomAsync.valueOrNull?.hostId == user!.uid;
 
     // ── React to room changes ────────────────────────────────────────────
@@ -116,42 +127,57 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       final room = next.valueOrNull;
       if (room == null || !mounted) return;
 
-      // New round started (or first round) → reset reveal, auto-play, start timer.
       if (room.currentRound != _prevRound) {
-        _prevRound           = room.currentRound;
-        _prevRevealedSeconds = room.revealedSeconds;
+        // New round — reset everything.
+        _prevRound            = room.currentRound;
+        _prevRevealedSeconds  = room.revealedSeconds;
+        _allGuessedTriggered  = false;
         if (_showReveal) setState(() => _showReveal = false);
         _loadAndAutoPlay(room);
         _startStageTimer(room.revealedSeconds, isHost);
         return;
       }
 
-      // Stage advanced (host revealed a longer clip) → auto-play + restart timer.
       if (room.revealedSeconds != _prevRevealedSeconds) {
+        // Stage advanced — auto-play new clip length, restart timer.
         _prevRevealedSeconds = room.revealedSeconds;
         _audioService.playClip(room.revealedSeconds);
         _startStageTimer(room.revealedSeconds, isHost);
       }
     });
 
-    // ── All players guessed → show reveal card immediately ───────────────
+    // ── All players guessed → reveal card ───────────────────────────────
+    //
+    // Guards:
+    //   1. room.status must be RoomStatus.playing (not a leftover state)
+    //   2. _prevRound must match room.currentRound (not a stale players snapshot
+    //      from the previous round where hasGuessedCorrectly was never reset)
+    //   3. _allGuessedTriggered prevents double-fire within the same round
     ref.listen(playersProvider(widget.roomId), (_, next) {
       final players = next.valueOrNull;
       if (players == null || players.isEmpty || !mounted) return;
-      if (players.every((p) => p.hasGuessedCorrectly) && !_showReveal) {
-        setState(() => _showReveal = true);
-        _stageTimer?.cancel();
-        _audioService.stopClip();
-        _gameService.forceEndRoundIfActive(widget.roomId);
+
+      // Read current room to validate status and round.
+      final room = ref.read(roomProvider(widget.roomId)).valueOrNull;
+      if (room == null) return;
+      if (room.status != RoomStatus.playing) return;
+      if (room.currentRound != _prevRound) return; // stale snapshot
+      if (_showReveal || _allGuessedTriggered) return;
+
+      if (players.every((p) => p.hasGuessedCorrectly)) {
+        _triggerReveal();
       }
     });
 
     return roomAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error:   (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      loading: () =>
+      const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) =>
+          Scaffold(body: Center(child: Text('Error: $e'))),
       data: (room) {
         if (room == null) {
-          return const Scaffold(body: Center(child: Text('Room not found.')));
+          return const Scaffold(
+              body: Center(child: Text('Room not found.')));
         }
 
         if (room.status == RoomStatus.finished && !_navigating) {
@@ -161,8 +187,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           });
         }
 
-        final roundIsOver  = _showReveal || room.status == RoomStatus.roundEnded;
-        final displayName  = user?.displayName ?? 'Player';
+        final roundIsOver = _showReveal ||
+            room.status == RoomStatus.roundEnded;
+        final displayName = user?.displayName ?? 'Player';
 
         return Scaffold(
           appBar: AppBar(
@@ -174,15 +201,15 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                 Padding(
                   padding: EdgeInsets.only(right: context.fs(8, max: 14)),
                   child: RoundTimerWidget(
-                    // Key on round + stage so widget resets its 30 s countdown
-                    // each time a new stage is revealed.
-                    key: ValueKey('${room.currentRound}_${room.revealedSeconds}'),
+                    key: ValueKey(
+                        '${room.currentRound}_${room.revealedSeconds}'),
                     totalSeconds: 30,
                     revealedSeconds: room.revealedSeconds,
                     onRoundEnd: () {
-                      // Safety: client-side timer fires if host timer fails.
+                      // Client-side safety fallback for non-host only.
+                      // The host's _stageTimer handles the authoritative end.
                       if (!_showReveal && !isHost) {
-                        setState(() => _showReveal = true);
+                        _triggerReveal();
                       }
                     },
                   ),
@@ -209,6 +236,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                     onEndRound: () {
                       _stageTimer?.cancel();
                       _audioService.stopClip();
+                      _allGuessedTriggered = true;
                       setState(() => _showReveal = true);
                     },
                   );
@@ -237,6 +265,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   isHost: isHost,
                   onNextRound: () {
                     _stageTimer?.cancel();
+                    _allGuessedTriggered = false;
                     _gameService.endRound(widget.roomId, room);
                   },
                 ),
@@ -248,7 +277,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 }
 
-// ── Round Indicator ──────────────────────────────────────────────────────────
+// ── Round Indicator ───────────────────────────────────────────────────────────
 
 class _RoundIndicator extends StatelessWidget {
   final int current;
@@ -268,7 +297,7 @@ class _RoundIndicator extends StatelessWidget {
   }
 }
 
-// ── Player Count Badge ───────────────────────────────────────────────────────
+// ── Player Count Badge ────────────────────────────────────────────────────────
 
 class _PlayerCountBadge extends ConsumerWidget {
   final String roomId;
@@ -285,12 +314,12 @@ class _PlayerCountBadge extends ConsumerWidget {
         visualDensity: VisualDensity.compact,
       ),
       loading: () => const SizedBox.shrink(),
-      error:   (_, __) => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }
 
-// ── Game Body ────────────────────────────────────────────────────────────────
+// ── Game Body ─────────────────────────────────────────────────────────────────
 
 class _GameBody extends StatelessWidget {
   final Room room;
@@ -324,10 +353,14 @@ class _GameBody extends StatelessWidget {
           audioService: audioService,
           onSongLoad: onSongLoad,
           isHost: isHost,
-          onReveal: (seconds) => gameService.revealMoreClip(roomId, seconds),
+          onReveal: (seconds) =>
+              gameService.revealMoreClip(roomId, seconds),
           onEndRound: onEndRound,
         ),
         const Divider(height: 1),
+        // ── Guess history / unified chat ─────────────────────────────
+        // TODO: if you have a ChatWidget, replace or wrap GuessHistoryWidget:
+        //   Expanded(child: ChatWidget(roomId: roomId)),
         Expanded(
           child: GuessHistoryWidget(
             roomId: roomId,

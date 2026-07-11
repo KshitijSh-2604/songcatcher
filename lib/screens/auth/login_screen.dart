@@ -47,10 +47,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _loading = true;
-      _error   = null;
-    });
+    setState(() { _loading = true; _error = null; });
     try {
       if (_isRegister) {
         final result = await _auth.createUserWithEmailAndPassword(
@@ -75,10 +72,7 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _continueAsGuest() async {
-    setState(() {
-      _loading = true;
-      _error   = null;
-    });
+    setState(() { _loading = true; _error = null; });
     try {
       final result = await _auth.signInAnonymously();
       await result.user?.updateDisplayName('Guest');
@@ -91,92 +85,86 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _toggleMode() {
-    setState(() {
-      _isRegister = !_isRegister;
-      _error      = null;
-    });
-    _animController
-      ..reset()
-      ..forward();
+    setState(() { _isRegister = !_isRegister; _error = null; });
+    _animController..reset()..forward();
   }
 
   String _friendlyError(String code) {
     switch (code) {
-      case 'user-not-found':
-        return 'No account found with that email.';
+      case 'user-not-found':        return 'No account found with that email.';
       case 'wrong-password':
-      case 'invalid-credential':
-        return 'Incorrect email or password.';
-      case 'email-already-in-use':
-        return 'An account already exists with this email.';
-      case 'weak-password':
-        return 'Password must be at least 6 characters.';
-      case 'invalid-email':
-        return 'Please enter a valid email address.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please wait and try again.';
-      case 'network-request-failed':
-        return 'No internet connection.';
-      default:
-        return 'Something went wrong. Try again.';
+      case 'invalid-credential':    return 'Incorrect email or password.';
+      case 'email-already-in-use':  return 'An account already exists with this email.';
+      case 'weak-password':         return 'Password must be at least 6 characters.';
+      case 'invalid-email':         return 'Please enter a valid email address.';
+      case 'too-many-requests':     return 'Too many attempts. Please wait and try again.';
+      case 'network-request-failed':return 'No internet connection.';
+      default:                      return 'Something went wrong. Try again.';
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isMobile  = context.isMobile;
-    // Card width: fluid 360→460 px, constrained so it never fills a wide screen
-    final cardWidth = context.fw(360, max: 460);
-
-    final card = FadeTransition(
-      opacity: _fadeAnim,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: cardWidth),
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: context.fs(20, max: 32),
-            vertical:   context.fs(24, max: 40),
-          ),
-          child: _FormContent(
-            formKey:         _formKey,
-            emailCtrl:       _emailCtrl,
-            passwordCtrl:    _passwordCtrl,
-            nameCtrl:        _nameCtrl,
-            isRegister:      _isRegister,
-            loading:         _loading,
-            error:           _error,
-            obscurePassword: _obscurePassword,
-            onSubmit:        _submit,
-            onToggleMode:    _toggleMode,
-            onGuestLogin:    _continueAsGuest,
-            onToggleObscure: () =>
-                setState(() => _obscurePassword = !_obscurePassword),
-          ),
-        ),
-      ),
-    );
+    final cardWidth  = context.fw(360, max: 460);
+    // Available height after SafeArea insets — used as minHeight so Center
+    // can actually center when content is shorter than the screen.
+    final safeHeight = MediaQuery.of(context).size.height
+        - MediaQuery.of(context).padding.top
+        - MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       body: SafeArea(
-        child: isMobile
-        // Small screens: scrollable so keyboard doesn't cover fields
-            ? SingleChildScrollView(
-          child: Center(child: card),
-        )
-        // Large screens: vertically + horizontally centered, no scrolling
-            : Center(child: card),
+        // SingleChildScrollView always present so the keyboard can push
+        // content up on small screens without overflow.
+        // ConstrainedBox(minHeight) makes the inner Center fill the
+        // viewport when the form is smaller than the screen, giving
+        // true vertical centering on large screens without any scrolling.
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: safeHeight),
+            child: Center(
+              child: FadeTransition(
+                opacity: _fadeAnim,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: cardWidth),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: context.fs(20, max: 32),
+                      vertical:   context.fs(24, max: 40),
+                    ),
+                    child: _FormContent(
+                      formKey:         _formKey,
+                      emailCtrl:       _emailCtrl,
+                      passwordCtrl:    _passwordCtrl,
+                      nameCtrl:        _nameCtrl,
+                      isRegister:      _isRegister,
+                      loading:         _loading,
+                      error:           _error,
+                      obscurePassword: _obscurePassword,
+                      onSubmit:        _submit,
+                      onToggleMode:    _toggleMode,
+                      onGuestLogin:    _continueAsGuest,
+                      onToggleObscure: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-// ── Form content extracted so it's shared between both layout paths ──────────
+// ── Form content ──────────────────────────────────────────────────────────────
 
 class _FormContent extends StatelessWidget {
-  final GlobalKey<FormState> formKey;
-  final TextEditingController emailCtrl;
-  final TextEditingController passwordCtrl;
-  final TextEditingController nameCtrl;
+  final GlobalKey<FormState>      formKey;
+  final TextEditingController     emailCtrl;
+  final TextEditingController     passwordCtrl;
+  final TextEditingController     nameCtrl;
   final bool    isRegister;
   final bool    loading;
   final String? error;
@@ -237,7 +225,7 @@ class _FormContent extends StatelessWidget {
             Container(
               padding: EdgeInsets.symmetric(
                   horizontal: context.fs(12, max: 16),
-                  vertical: context.fs(9, max: 12)),
+                  vertical:   context.fs(9, max: 12)),
               decoration: BoxDecoration(
                 color: Colors.red.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
@@ -258,7 +246,7 @@ class _FormContent extends StatelessWidget {
             Gap(context.fs(14, max: 20)),
           ],
 
-          // ── Name field (register only) ──────────────────────────────
+          // ── Name (register only) ────────────────────────────────────
           if (isRegister) ...[
             TextFormField(
               controller: nameCtrl,
@@ -321,7 +309,7 @@ class _FormContent extends StatelessWidget {
           ),
           Gap(context.fs(20, max: 30)),
 
-          // ── Submit button ───────────────────────────────────────────
+          // ── Submit ──────────────────────────────────────────────────
           FilledButton(
             onPressed: loading ? null : onSubmit,
             style: FilledButton.styleFrom(
@@ -363,7 +351,8 @@ class _FormContent extends StatelessWidget {
           Row(children: [
             const Expanded(child: Divider()),
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: context.fs(12, max: 16)),
+              padding: EdgeInsets.symmetric(
+                  horizontal: context.fs(12, max: 16)),
               child: Text('or',
                   style: TextStyle(
                       color: Colors.white38,
@@ -373,7 +362,7 @@ class _FormContent extends StatelessWidget {
           ]),
           Gap(context.fs(10, max: 14)),
 
-          // ── Guest button ─────────────────────────────────────────────
+          // ── Guest ────────────────────────────────────────────────────
           OutlinedButton.icon(
             onPressed: loading ? null : onGuestLogin,
             icon: Icon(Icons.person_outline, size: context.ff(16, max: 20)),
