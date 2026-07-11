@@ -1,10 +1,14 @@
+<p align="center">
+  <img align="center" width="200" height="200" alt="icon" src="https://github.com/user-attachments/assets/1a47a378-fefd-4441-9ae0-d0af2416278a" />
+</p>
+
 # SongCatcher.io 🎵    (Dev in progress)
 
-> Hear the beat. Catch the song. Beat the world.
+> Hear the beat. Catch the song.
 
 SongCatcher.io is a fast-paced multiplayer music guessing game where players compete in real-time by identifying songs from tiny audio snippets.
 
-Challenge friends, climb global leaderboards, discover legendary tracks, and prove your music knowledge across generations, genres, and artists.
+Challenge friends, *climb global leaderboards, discover legendary tracks, and prove your music knowledge across generations, genres, and artists.
 
 ---
 
@@ -45,12 +49,12 @@ Songs begin with extremely short snippets.
 
 If nobody guesses correctly, the clip duration increases.
 
-| Round | Clip Duration |
-|---|---|
-| 1️⃣ | 2 seconds |
-| 2️⃣ | 3 seconds |
-| 3️⃣ | 5 seconds |
-| 4️⃣ | 8 seconds |
+| Round | Clip Duration | Round Duration|
+|---|---|---|
+| 1️⃣ | 2 seconds | 30 seconds |
+| 2️⃣ | 3 seconds | 20 seconds |
+| 3️⃣ | 5 seconds | 15 seconds |
+| 4️⃣ | 7 seconds | 10 seconds |
 
 ### Gameplay Rules
 
@@ -61,7 +65,7 @@ If nobody guesses correctly, the clip duration increases.
 
 ---
 
-# 🌍 Music Categories
+# 🌍 *Music Categories
 
 Choose exactly what kind of music you want to play with.
 
@@ -69,18 +73,11 @@ Choose exactly what kind of music you want to play with.
 
 ## 🇮🇳 Bollywood Mode / 🗽 English / 🌍 International Mode
 
-Play songs from:
-
-- 70s
-- 80s
-- 90s
-- 2000s
-- 2010s
-- 2020s
+Play songs from any decade from 1950s to 2020s (present)
 
 ---
 
-# 🎤 Favorite Artist Mode
+# 🎤 *Favorite Artist Mode
 
 This mode creates a completely personalized music battle.
 
@@ -144,7 +141,7 @@ After solving the song:
 
 ---
 
-# 🪙 MusCoins
+# 🪙 *MusCoins
 
 SongCatcher.io includes its own upcoming in-game currency system called **MusCoins**.
 
