@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,20 +26,78 @@ class GameScreen extends ConsumerStatefulWidget {
 
 class _GameScreenState extends ConsumerState<GameScreen> {
   final _audioService = SongAudioService();
-  final _gameService = GameService();
+  final _gameService  = GameService();
 
+  // ── State tracking ────────────────────────────────────────────────────────
   String? _loadedSongId;
-  bool _navigating = false;
-  bool _showReveal = false;
-  int _prevRound = 0;
+  bool    _navigating  = false;
+  bool    _showReveal  = false;
+  int     _prevRound   = -1;
+  int     _prevRevealedSeconds = -1;
+
+  // 30-second per-stage auto-advance timer (host only).
+  Timer? _stageTimer;
+
+  // Clip reveal stages, mirrored from GameService for local use.
+  static const _stages = [2, 3, 5, 10];
 
   @override
   void dispose() {
+    _stageTimer?.cancel();
     _audioService.dispose();
     super.dispose();
   }
 
-  Future<void> _loadSongIfNeeded(String songId, String audioUrl, int silenceOffset) async {
+  // ── Load + auto-play ──────────────────────────────────────────────────────
+
+  Future<void> _loadAndAutoPlay(Room room) async {
+    final songData = room.currentSong;
+    if (songData == null) return;
+
+    final songId       = songData['id']            as String? ?? '';
+    final audioUrl     = songData['audioUrl']      as String? ?? '';
+    final silenceOffset = (songData['silenceOffset'] as num?)?.toInt() ?? 0;
+    if (audioUrl.isEmpty) return;
+
+    if (_loadedSongId != songId) {
+      _loadedSongId = songId;
+      await _audioService.loadSong(audioUrl, silenceOffset: silenceOffset);
+    }
+    // Always play the currently revealed clip length.
+    _audioService.playClip(room.revealedSeconds);
+  }
+
+  // ── Stage timer (host only, 30 s per stage) ───────────────────────────────
+  //
+  // Called whenever the active stage changes. After 30 s the host client
+  // advances to the next stage automatically; if already at the last stage
+  // (10 s clip) it ends the round.
+
+  void _startStageTimer(int currentStage, bool isHost) {
+    _stageTimer?.cancel();
+    if (!isHost) return;
+
+    _stageTimer = Timer(const Duration(seconds: 30), () async {
+      if (!mounted) return;
+      final idx = _stages.indexOf(currentStage);
+      if (idx >= 0 && idx < _stages.length - 1) {
+        // Advance to next stage — room update will trigger auto-play + new timer.
+        await _gameService.revealMoreClip(widget.roomId, _stages[idx + 1]);
+      } else {
+        // Last stage (10 s) expired — end the round.
+        _audioService.stopClip();
+        _gameService.forceEndRoundIfActive(widget.roomId);
+        if (mounted && !_showReveal) setState(() => _showReveal = true);
+      }
+    });
+  }
+
+  // ── Called when the song is loaded from ClipPlayerWidget ──────────────────
+  //
+  // Kept as a callback for ClipPlayerWidget backwards-compat; actual play
+  // is now driven by ref.listen detecting room changes.
+
+  Future<void> _onSongLoad(String songId, String audioUrl, int silenceOffset) async {
     if (_loadedSongId == songId) return;
     _loadedSongId = songId;
     await _audioService.loadSong(audioUrl, silenceOffset: silenceOffset);
@@ -46,12 +105,50 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final roomAsync = ref.watch(roomProvider(widget.roomId));
-    final user = ref.watch(currentUserProvider);
+    final roomAsync    = ref.watch(roomProvider(widget.roomId));
+    final playersAsync = ref.watch(playersProvider(widget.roomId));
+    final user         = ref.watch(currentUserProvider);
+    final isHost       = user?.uid != null &&
+        roomAsync.valueOrNull?.hostId == user!.uid;
+
+    // ── React to room changes ────────────────────────────────────────────
+    ref.listen(roomProvider(widget.roomId), (_, next) {
+      final room = next.valueOrNull;
+      if (room == null || !mounted) return;
+
+      // New round started (or first round) → reset reveal, auto-play, start timer.
+      if (room.currentRound != _prevRound) {
+        _prevRound           = room.currentRound;
+        _prevRevealedSeconds = room.revealedSeconds;
+        if (_showReveal) setState(() => _showReveal = false);
+        _loadAndAutoPlay(room);
+        _startStageTimer(room.revealedSeconds, isHost);
+        return;
+      }
+
+      // Stage advanced (host revealed a longer clip) → auto-play + restart timer.
+      if (room.revealedSeconds != _prevRevealedSeconds) {
+        _prevRevealedSeconds = room.revealedSeconds;
+        _audioService.playClip(room.revealedSeconds);
+        _startStageTimer(room.revealedSeconds, isHost);
+      }
+    });
+
+    // ── All players guessed → show reveal card immediately ───────────────
+    ref.listen(playersProvider(widget.roomId), (_, next) {
+      final players = next.valueOrNull;
+      if (players == null || players.isEmpty || !mounted) return;
+      if (players.every((p) => p.hasGuessedCorrectly) && !_showReveal) {
+        setState(() => _showReveal = true);
+        _stageTimer?.cancel();
+        _audioService.stopClip();
+        _gameService.forceEndRoundIfActive(widget.roomId);
+      }
+    });
 
     return roomAsync.when(
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      error:   (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
       data: (room) {
         if (room == null) {
           return const Scaffold(body: Center(child: Text('Room not found.')));
@@ -64,42 +161,29 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           });
         }
 
-        if (room.currentRound != _prevRound) {
-          _prevRound = room.currentRound;
-          if (_showReveal) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _showReveal = false);
-            });
-          }
-        }
-
-        // Round auto-ends when reveal appears — stop showing it once the
-        // room moves into "revealed" state server-side too, so late joiners
-        // and the host agree on when the round is over.
-        final roundIsOver = _showReveal || room.status == RoomStatus.roundEnded;
-
-        final isHost = user?.uid == room.hostId;
-        final displayName = user?.displayName ?? 'Player';
+        final roundIsOver  = _showReveal || room.status == RoomStatus.roundEnded;
+        final displayName  = user?.displayName ?? 'Player';
 
         return Scaffold(
           appBar: AppBar(
             automaticallyImplyLeading: false,
-            title: _RoundIndicator(current: room.currentRound, total: room.totalRounds),
+            title: _RoundIndicator(
+                current: room.currentRound, total: room.totalRounds),
             actions: [
               if (!roundIsOver && room.roundStartedAt != null)
                 Padding(
                   padding: EdgeInsets.only(right: context.fs(8, max: 14)),
                   child: RoundTimerWidget(
-                    key: ValueKey(room.currentRound),
-                    roundStartTime: room.roundStartedAt!.toDate(),
+                    // Key on round + stage so widget resets its 30 s countdown
+                    // each time a new stage is revealed.
+                    key: ValueKey('${room.currentRound}_${room.revealedSeconds}'),
+                    totalSeconds: 30,
                     revealedSeconds: room.revealedSeconds,
-                    isHost: isHost,
-                    onRevealThree: () => _gameService.revealMoreClip(widget.roomId, 3),
-                    onRevealFive: () => _gameService.revealMoreClip(widget.roomId, 5),
-                    onRevealTen: () => _gameService.revealMoreClip(widget.roomId, 10),
                     onRoundEnd: () {
-                      if (!_showReveal) setState(() => _showReveal = true);
-                      _gameService.forceEndRoundIfActive(widget.roomId);
+                      // Safety: client-side timer fires if host timer fails.
+                      if (!_showReveal && !isHost) {
+                        setState(() => _showReveal = true);
+                      }
                     },
                   ),
                 ),
@@ -121,13 +205,18 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                     isHost: isHost,
                     audioService: _audioService,
                     gameService: _gameService,
-                    onSongLoad: _loadSongIfNeeded,
-                    onEndRound: () => setState(() => _showReveal = true),
+                    onSongLoad: _onSongLoad,
+                    onEndRound: () {
+                      _stageTimer?.cancel();
+                      _audioService.stopClip();
+                      setState(() => _showReveal = true);
+                    },
                   );
 
                   if (!isWide) return body;
 
-                  final sidebarWidth = (constraints.maxWidth * 0.22).clamp(180.0, 280.0);
+                  final sidebarWidth =
+                  (constraints.maxWidth * 0.22).clamp(180.0, 280.0);
 
                   return Row(
                     children: [
@@ -146,7 +235,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   roomId: widget.roomId,
                   song: Song.fromMap(room.currentSong!),
                   isHost: isHost,
-                  onNextRound: () => _gameService.endRound(widget.roomId, room),
+                  onNextRound: () {
+                    _stageTimer?.cancel();
+                    _gameService.endRound(widget.roomId, room);
+                  },
                 ),
             ],
           ),
@@ -169,7 +261,8 @@ class _RoundIndicator extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text('🎵 ', style: TextStyle(fontSize: context.ff(14, max: 18))),
-        Text('Round $current / $total', style: TextStyle(fontSize: context.ff(14, max: 18))),
+        Text('Round $current / $total',
+            style: TextStyle(fontSize: context.ff(14, max: 18))),
       ],
     );
   }
@@ -187,11 +280,12 @@ class _PlayerCountBadge extends ConsumerWidget {
     return playersAsync.when(
       data: (players) => Chip(
         avatar: Icon(Icons.people, size: context.ff(13, max: 16)),
-        label: Text('${players.length}', style: TextStyle(fontSize: context.ff(12, max: 14))),
+        label: Text('${players.length}',
+            style: TextStyle(fontSize: context.ff(12, max: 14))),
         visualDensity: VisualDensity.compact,
       ),
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error:   (_, __) => const SizedBox.shrink(),
     );
   }
 }

@@ -461,40 +461,71 @@ class _HostControls extends StatefulWidget {
 }
 
 class _HostControlsState extends State<_HostControls> {
-  late RangeValues _yearRange;
-  late int _songCount;
-
-  static const _minYear = 1950;
-  static const _maxYear = 2029;
+  // Slider values are decade-start years (1950, 1960, … 2020).
+  // _maxYear is the last decade-start tick; actual yearTo sent to Firestore
+  // is open-ended to the current year when the slider sits at _maxYear.
+  static const _minYear  = 1950;
+  static const _maxYear  = 2020;   // last decade-start tick on slider
   static const _minSongs = 5;
   static const _maxSongs = 25;
+
+  late RangeValues _yearRange;
+  late int _songCount;
 
   @override
   void initState() {
     super.initState();
-    _yearRange = RangeValues(
-      widget.room.yearFrom.toDouble().clamp(_minYear.toDouble(), _maxYear.toDouble()),
-      widget.room.yearTo.toDouble().clamp(_minYear.toDouble(), _maxYear.toDouble()),
-    );
+    // Snap stored yearFrom to nearest decade start for the slider.
+    final storedFrom = (widget.room.yearFrom ~/ 10 * 10)
+        .clamp(_minYear, _maxYear)
+        .toDouble();
+    // Snap stored yearTo: if it's past _maxYear (e.g. 2026), map to 2020 tick.
+    final storedTo = widget.room.yearTo >= _maxYear
+        ? _maxYear.toDouble()
+        : (widget.room.yearTo ~/ 10 * 10).clamp(_minYear, _maxYear).toDouble();
+
+    _yearRange = RangeValues(storedFrom, storedTo);
     _songCount = widget.room.totalRounds.clamp(_minSongs, _maxSongs);
+  }
+
+  /// Converts slider decade-start values to actual inclusive year bounds.
+  ///   start decade → that decade's first year (e.g. 1980 → 1980)
+  ///   end decade   → last year of that decade (e.g. 1980 → 1989)
+  ///              BUT if end == _maxYear (2020) → current year (open-ended)
+  (int, int) _resolve(RangeValues v) {
+    final startDecade = v.start.round();
+    final endDecade   = v.end.round();
+    final yearFrom    = startDecade;
+    final yearTo      = endDecade >= _maxYear
+        ? DateTime.now().year   // 2020s = 2020 to present
+        : endDecade + 9;
+    return (yearFrom, yearTo);
+  }
+
+  String _decadeLabel(double decadeStart) {
+    final d = decadeStart.round();
+    if (d >= _maxYear) return '${_maxYear}s–now';
+    return '${d}s';
   }
 
   void _commitYearRange(RangeValues values) {
     setState(() => _yearRange = values);
+    final (yearFrom, yearTo) = _resolve(values);
     widget.gameService.updateRoomSettings(
       widget.roomId,
-      yearRangeStart: values.start.round(),
-      yearRangeEnd: values.end.round(),
+      yearRangeStart: yearFrom,
+      yearRangeEnd: yearTo,
       totalRounds: _songCount,
     );
   }
 
   void _commitSongCount(int count) {
     setState(() => _songCount = count);
+    final (yearFrom, yearTo) = _resolve(_yearRange);
     widget.gameService.updateRoomSettings(
       widget.roomId,
-      yearRangeStart: _yearRange.start.round(),
-      yearRangeEnd: _yearRange.end.round(),
+      yearRangeStart: yearFrom,
+      yearRangeEnd: yearTo,
       totalRounds: count,
     );
   }
@@ -509,11 +540,15 @@ class _HostControlsState extends State<_HostControls> {
         // ── Year range ──────────────────────────────────────────────
         Row(
           children: [
-            Text('Song Era', style: TextStyle(fontWeight: FontWeight.w600, fontSize: context.ff(12, max: 15))),
+            Text('Song Era',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: context.ff(12, max: 15))),
             const Spacer(),
             Text(
-              '${_yearRange.start.round()}s – ${_yearRange.end.round()}s',
-              style: TextStyle(color: Colors.purpleAccent, fontWeight: FontWeight.bold, fontSize: context.ff(12, max: 15)),
+              '${_decadeLabel(_yearRange.start)} – ${_decadeLabel(_yearRange.end)}',
+              style: TextStyle(
+                  color: Colors.purpleAccent,
+                  fontWeight: FontWeight.bold,
+                  fontSize: context.ff(12, max: 15)),
             ),
           ],
         ),
@@ -521,21 +556,42 @@ class _HostControlsState extends State<_HostControls> {
           values: _yearRange,
           min: _minYear.toDouble(),
           max: _maxYear.toDouble(),
-          divisions: (_maxYear - _minYear) ~/ 10,
+          divisions: (_maxYear - _minYear) ~/ 10,  // 7 ticks: 1950…2020
           activeColor: Colors.purpleAccent,
-          onChanged: (v) => setState(() => _yearRange = v),
-          onChangeEnd: _commitYearRange,
+          labels: RangeLabels(
+            _decadeLabel(_yearRange.start),
+            _decadeLabel(_yearRange.end),
+          ),
+          onChanged: (v) {
+            // Snap both thumbs to decade starts while dragging.
+            final snapped = RangeValues(
+              (v.start / 10).round() * 10.0,
+              (v.end   / 10).round() * 10.0,
+            );
+            setState(() => _yearRange = snapped);
+          },
+          onChangeEnd: (v) {
+            final snapped = RangeValues(
+              (v.start / 10).round() * 10.0,
+              (v.end   / 10).round() * 10.0,
+            );
+            _commitYearRange(snapped);
+          },
         ),
         Gap(context.fs(10, max: 16)),
 
         // ── Song count ──────────────────────────────────────────────
         Row(
           children: [
-            Text('Number of Songs', style: TextStyle(fontWeight: FontWeight.w600, fontSize: context.ff(12, max: 15))),
+            Text('Number of Songs',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: context.ff(12, max: 15))),
             const Spacer(),
             Text(
               '$_songCount',
-              style: TextStyle(color: Colors.purpleAccent, fontWeight: FontWeight.bold, fontSize: context.ff(12, max: 15)),
+              style: TextStyle(
+                  color: Colors.purpleAccent,
+                  fontWeight: FontWeight.bold,
+                  fontSize: context.ff(12, max: 15)),
             ),
           ],
         ),

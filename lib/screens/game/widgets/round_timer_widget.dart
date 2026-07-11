@@ -2,23 +2,21 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../utils/responsive.dart';
 
+// Pure countdown display — 30 seconds per clip stage.
+// game_screen.dart drives all auto-advance logic and passes a new ValueKey
+// each time the stage changes, which forces this widget to rebuild from zero.
+// onRoundEnd is a safety fallback for non-host clients whose local timer
+// fires if the host's Firestore update is delayed.
+
 class RoundTimerWidget extends StatefulWidget {
-  final DateTime roundStartTime;
-  final int revealedSeconds;
-  final bool isHost;
-  final VoidCallback onRevealThree;
-  final VoidCallback onRevealFive;
-  final VoidCallback onRevealTen;
+  final int totalSeconds;       // always 30, one full stage window
+  final int revealedSeconds;    // current clip stage in seconds, for label
   final VoidCallback onRoundEnd;
 
   const RoundTimerWidget({
     super.key,
-    required this.roundStartTime,
+    required this.totalSeconds,
     required this.revealedSeconds,
-    required this.isHost,
-    required this.onRevealThree,
-    required this.onRevealFive,
-    required this.onRevealTen,
     required this.onRoundEnd,
   });
 
@@ -27,35 +25,19 @@ class RoundTimerWidget extends StatefulWidget {
 }
 
 class _RoundTimerWidgetState extends State<RoundTimerWidget> {
-  late Timer _timer;
-  int _elapsed = 0;
-
-  // Phase boundaries, in elapsed seconds since round start.
-  static const _phase1End = 12; // 2s clip window
-  static const _phase2End = 24; // 3s clip window
-  static const _phase3End = 40; // 5s clip window
-  static const _phase4End = 60; // 10s clip window — round ends after this
+  late Timer _ticker;
+  late int _remaining;
+  bool _ended = false;
 
   @override
   void initState() {
     super.initState();
-    _startTimer();
-  }
-
-  void _startTimer() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final elapsed = DateTime.now().difference(widget.roundStartTime).inSeconds;
-      setState(() => _elapsed = elapsed);
-
-      if (!widget.isHost) return;
-
-      if (elapsed >= _phase1End && widget.revealedSeconds < 3) {
-        widget.onRevealThree();
-      } else if (elapsed >= _phase2End && widget.revealedSeconds < 5) {
-        widget.onRevealFive();
-      } else if (elapsed >= _phase3End && widget.revealedSeconds < 10) {
-        widget.onRevealTen();
-      } else if (elapsed >= _phase4End) {
+    _remaining = widget.totalSeconds;
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _remaining = (_remaining - 1).clamp(0, widget.totalSeconds));
+      if (_remaining == 0 && !_ended) {
+        _ended = true;
         widget.onRoundEnd();
       }
     });
@@ -63,54 +45,48 @@ class _RoundTimerWidgetState extends State<RoundTimerWidget> {
 
   @override
   void dispose() {
-    _timer.cancel();
+    _ticker.cancel();
     super.dispose();
   }
 
-  int get _remaining {
-    if (_elapsed < _phase1End) return _phase1End - _elapsed;
-    if (_elapsed < _phase2End) return _phase2End - _elapsed;
-    if (_elapsed < _phase3End) return _phase3End - _elapsed;
-    if (_elapsed < _phase4End) return _phase4End - _elapsed;
-    return 0;
-  }
-
-  // Reflects the actual server-driven reveal state rather than guessing
-  // from elapsed time, so the label always matches what's really playing.
-  String get _phaseLabel => '${widget.revealedSeconds}s clip';
-
-  Color get _timerColor {
-    if (_remaining > 10) return Colors.green;
-    if (_remaining > 5) return Colors.orange;
+  Color get _color {
+    if (_remaining > 15) return Colors.green;
+    if (_remaining > 8)  return Colors.orange;
     return Colors.red;
   }
 
+  String get _stageLabel => '${widget.revealedSeconds}s clip';
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: context.fs(11, max: 16), vertical: context.fs(5, max: 8)),
-          decoration: BoxDecoration(
-            color: _timerColor.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: _timerColor.withOpacity(0.5)),
+    return Container(
+      padding: EdgeInsets.symmetric(
+          horizontal: context.fs(11, max: 16), vertical: context.fs(5, max: 8)),
+      decoration: BoxDecoration(
+        color: _color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _color.withOpacity(0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer, size: context.ff(14, max: 18), color: _color),
+          SizedBox(width: context.fs(5, max: 8)),
+          Text(
+            '${_remaining}s',
+            style: TextStyle(
+                color: _color,
+                fontWeight: FontWeight.bold,
+                fontSize: context.ff(14, max: 18)),
           ),
-          child: Row(
-            children: [
-              Icon(Icons.timer, size: context.ff(14, max: 18), color: _timerColor),
-              SizedBox(width: context.fs(5, max: 8)),
-              Text(
-                '${_remaining}s',
-                style: TextStyle(color: _timerColor, fontWeight: FontWeight.bold, fontSize: context.ff(14, max: 18)),
-              ),
-              SizedBox(width: context.fs(6, max: 10)),
-              Text('($_phaseLabel)', style: TextStyle(color: Colors.white54, fontSize: context.ff(11, max: 13))),
-            ],
+          SizedBox(width: context.fs(6, max: 10)),
+          Text(
+            '($_stageLabel)',
+            style: TextStyle(
+                color: Colors.white54, fontSize: context.ff(11, max: 13)),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

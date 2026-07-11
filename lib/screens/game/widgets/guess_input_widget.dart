@@ -30,16 +30,32 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
   bool _guessedCorrectly = false;
   bool _submitting = false;
 
+  // Track which song + round we last initialized for, so didUpdateWidget
+  // only resets state when the actual song changes — not on every Firestore
+  // snapshot (which produces a new Map object each time, breaking == comparison).
+  String? _lastSongId;
+  int _lastRound = -1;
+
   @override
   void initState() {
     super.initState();
+    _lastSongId = widget.room.currentSong?['id'] as String?;
+    _lastRound  = widget.room.currentRound;
     _checkAlreadyGuessed();
   }
 
   @override
   void didUpdateWidget(GuessInputWidget old) {
     super.didUpdateWidget(old);
-    if (old.room.currentRound != widget.room.currentRound || old.room.currentSong != widget.room.currentSong) {
+
+    final newSongId = widget.room.currentSong?['id'] as String?;
+    final newRound  = widget.room.currentRound;
+
+    // Only reset when the song or round actually changes, not on every
+    // Firestore snapshot (Map reference equality always differs per snapshot).
+    if (newRound != _lastRound || newSongId != _lastSongId) {
+      _lastRound  = newRound;
+      _lastSongId = newSongId;
       setState(() => _guessedCorrectly = false);
       _ctrl.clear();
       _checkAlreadyGuessed();
@@ -67,9 +83,8 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
 
   Future<void> _submitGuess() async {
     final guess = _ctrl.text.trim();
-    // Locked out once already correct this round — this is the lockout
-    // bug #9 asked for, enforced both here and (defensively) server-side
-    // in GameService.submitGuess.
+    // Locked out once already correct this round — bug #9 lockout,
+    // enforced both here and defensively server-side in GameService.submitGuess.
     if (guess.isEmpty || _submitting || _guessedCorrectly) return;
 
     setState(() => _submitting = true);
@@ -109,7 +124,8 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
   Widget build(BuildContext context) {
     if (_guessedCorrectly) {
       return Container(
-        padding: EdgeInsets.symmetric(horizontal: context.fs(16, max: 24), vertical: context.fs(13, max: 20)),
+        padding: EdgeInsets.symmetric(
+            horizontal: context.fs(16, max: 24), vertical: context.fs(13, max: 20)),
         decoration: BoxDecoration(
           color: Colors.green.withOpacity(0.1),
           border: Border(top: BorderSide(color: Colors.green.withOpacity(0.3))),
@@ -117,11 +133,15 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: context.ff(18, max: 24)),
+            Icon(Icons.check_circle_rounded,
+                color: Colors.greenAccent, size: context.ff(18, max: 24)),
             SizedBox(width: context.fs(8, max: 12)),
             Text(
               'You caught it! Waiting for others...',
-              style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w600, fontSize: context.ff(13, max: 16)),
+              style: TextStyle(
+                  color: Colors.greenAccent,
+                  fontWeight: FontWeight.w600,
+                  fontSize: context.ff(13, max: 16)),
             ),
           ],
         ),
@@ -147,12 +167,17 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
               focusNode: _focusNode,
               enabled: !_submitting,
               textInputAction: TextInputAction.send,
+              // Never call setState in onChanged — that's what caused the
+              // freeze. Only submit on send action or button tap.
               onSubmitted: (_) => _submitGuess(),
+              autocorrect: false,
+              enableSuggestions: false,
               style: TextStyle(fontSize: context.ff(14, max: 17)),
               decoration: InputDecoration(
                 hintText: 'Song title or artist name...',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
-                contentPadding: EdgeInsets.symmetric(horizontal: context.fs(14, max: 22), vertical: context.fs(10, max: 15)),
+                contentPadding: EdgeInsets.symmetric(
+                    horizontal: context.fs(14, max: 22), vertical: context.fs(10, max: 15)),
               ),
             ),
           ),
