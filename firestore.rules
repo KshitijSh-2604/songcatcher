@@ -119,9 +119,21 @@ service cloud.firestore {
     // Optional: store user profile data
 
     match /users/{userId} {
-      allow read: if isSignedIn() && isOwner(userId);
+      allow read: if isSignedIn(); // Allow other users to see display names/avatars in leaderboards
       allow create: if isSignedIn() && isOwner(userId);
       allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if false;
+    }
+
+    // ── Daily Challenges ──────────────────────────────────────────────────
+    match /daily_challenges/{challengeId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // Temporary for prototype - should be Admin SDK
+    }
+
+    match /daily_attempts/{attemptId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
       allow delete: if false;
     }
 

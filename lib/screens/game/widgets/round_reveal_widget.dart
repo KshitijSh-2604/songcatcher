@@ -7,6 +7,7 @@ class RoundRevealWidget extends StatefulWidget {
   final String roomId;
   final Song song;
   final bool isHost;
+  final bool isSkipped;
   final VoidCallback onNextRound;
 
   const RoundRevealWidget({
@@ -14,6 +15,7 @@ class RoundRevealWidget extends StatefulWidget {
     required this.roomId,
     required this.song,
     required this.isHost,
+    this.isSkipped = false,
     required this.onNextRound,
   });
 
@@ -46,12 +48,15 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final overlayBg = isDark ? Colors.black.withOpacity(0.9) : const Color(0xEEF0F4F8);
+
     return FadeTransition(
       opacity: _fadeAnim,
       child: SlideTransition(
         position: _slideAnim,
         child: Container(
-          color: const Color(0xEE0F0F1A),
+          color: overlayBg,
           child: Center(
             child: ConstrainedBox(
               // Wider on desktop — up to 860px so the two-column layout
@@ -68,21 +73,31 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
                           horizontal: context.fs(14, max: 20),
                           vertical: context.fs(5, max: 8)),
                       decoration: BoxDecoration(
-                        color: Colors.purpleAccent.withOpacity(0.15),
+                        color: Theme.of(context).primaryColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                         border:
-                        Border.all(color: Colors.purpleAccent.withOpacity(0.4)),
+                        Border.all(color: Theme.of(context).primaryColor.withOpacity(0.3)),
                       ),
                       child: Text(
-                        '🎵 Round Over!',
+                        widget.isSkipped ? '🚫 Round Skipped!' : '🎵 Round Over!',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: Colors.purpleAccent,
+                          color: widget.isSkipped ? Colors.red : Theme.of(context).primaryColor,
                           fontSize: context.ff(13, max: 16),
                         ),
                       ),
                     ),
                     Gap(context.fs(22, max: 34)),
+
+                    if (widget.isSkipped)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: Text(
+                          'Most players voted to skip. No points were awarded.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontWeight: FontWeight.w700, color: Colors.red.shade700, fontSize: 13),
+                        ),
+                      ),
 
                     // ── Main card — stacked on narrow, side-by-side on wide ──
                     context.twoColumn
@@ -102,7 +117,6 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
                           label: Text('Next Round',
                               style: TextStyle(fontSize: context.ff(14, max: 17))),
                           style: FilledButton.styleFrom(
-                            backgroundColor: Colors.purpleAccent,
                             padding: EdgeInsets.symmetric(
                                 vertical: context.fs(12, max: 18)),
                           ),
@@ -112,7 +126,7 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
                       Text(
                         'Waiting for host to continue...',
                         style: TextStyle(
-                            color: Colors.white38,
+                            color: Theme.of(context).hintColor,
                             fontSize: context.ff(12, max: 14)),
                       ),
                   ],
@@ -189,9 +203,9 @@ class _AlbumArt extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: Colors.purpleAccent.withOpacity(0.15),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(size * 0.14),
-        border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
+        border: Border.all(color: const Color(0xFFD4D9E2), width: 2),
         image: song.albumArtUrl.isNotEmpty
             ? DecorationImage(
           image: NetworkImage(song.albumArtUrl),
@@ -226,7 +240,8 @@ class _SongInfo extends StatelessWidget {
           song.title,
           style: TextStyle(
               fontSize: context.ff(18, max: 28),
-              fontWeight: FontWeight.w900),
+              fontWeight: FontWeight.w900,
+              color: Theme.of(context).textTheme.bodyLarge?.color),
           textAlign: textAlign,
         ),
         Gap(context.fs(5, max: 8)),
@@ -234,7 +249,7 @@ class _SongInfo extends StatelessWidget {
           song.artist,
           style: TextStyle(
               fontSize: context.ff(13, max: 18),
-              color: Colors.white60),
+              color: Theme.of(context).textTheme.bodyMedium?.color),
           textAlign: textAlign,
         ),
         Gap(context.fs(4, max: 6)),
@@ -242,7 +257,7 @@ class _SongInfo extends StatelessWidget {
           song.album.isNotEmpty ? song.album : '',
           style: TextStyle(
               fontSize: context.ff(11, max: 14),
-              color: Colors.white38),
+              color: Theme.of(context).hintColor),
           textAlign: textAlign,
         ),
         Gap(context.fs(10, max: 16)),
@@ -276,13 +291,15 @@ class _Tag extends StatelessWidget {
       padding: EdgeInsets.symmetric(
           horizontal: context.fs(8, max: 12), vertical: context.fs(2, max: 4)),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white24),
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Theme.of(context).dividerColor),
       ),
       child: Text(label,
           style: TextStyle(
-              color: Colors.white60, fontSize: context.ff(10, max: 13))),
+              color: Theme.of(context).textTheme.bodyMedium?.color, 
+              fontSize: context.ff(10, max: 13), 
+              fontWeight: FontWeight.bold)),
     );
   }
 }
@@ -307,7 +324,8 @@ class _CorrectGuessers extends StatelessWidget {
           return Text(
             'Nobody caught this one! 🙈',
             style: TextStyle(
-                color: Colors.white38, fontSize: context.ff(13, max: 15)),
+                color: Theme.of(context).hintColor, 
+                fontSize: context.ff(13, max: 15)),
           );
         }
 
@@ -321,7 +339,8 @@ class _CorrectGuessers extends StatelessWidget {
           children: [
             Text('✅ Caught by',
                 style: TextStyle(
-                    color: Colors.white54, fontSize: context.ff(11, max: 13))),
+                    color: Theme.of(context).textTheme.bodyMedium?.color, 
+                    fontSize: context.ff(11, max: 13))),
             Gap(context.fs(5, max: 8)),
             Wrap(
               spacing: context.fs(5, max: 8),
@@ -331,9 +350,9 @@ class _CorrectGuessers extends StatelessWidget {
                   .map((name) => Chip(
                 label: Text(name,
                     style:
-                    TextStyle(fontSize: context.ff(11, max: 13))),
-                backgroundColor: Colors.green.withOpacity(0.15),
-                side: BorderSide(color: Colors.green.withOpacity(0.4)),
+                    TextStyle(fontSize: context.ff(11, max: 13), color: Colors.green.shade900)),
+                backgroundColor: Colors.green.shade50,
+                side: BorderSide(color: Colors.green.shade200),
               ))
                   .toList(),
             ),

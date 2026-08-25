@@ -83,3 +83,6 @@ Provider.family<bool, ({String roomId, String userId})>(
       final player = ref.watch(myPlayerProvider(args));
       return player?.hasGuessedCorrectly ?? false;
     });
+
+/// Tracks the ID of the room the user is currently participating in.
+final currentRoomIdProvider = StateProvider<String?>((ref) => null);

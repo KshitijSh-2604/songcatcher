@@ -55,43 +55,83 @@ class ScoringService {
   }) {
     final g = _normalize(guess);
     final t = _normalize(title);
-    final a = _normalize(artist);
 
-    if (g.isEmpty) return false;
+    if (g.isEmpty || t.isEmpty) return false;
 
-    // Exact match on title or artist
-    if (g == t || g == a) return true;
+    // Exact match after normalization
+    if (g == t) return true;
 
-    // Title contains guess or vice versa
-    if (t.contains(g) || g.contains(t)) return true;
+    // Title contains guess or vice versa as a whole word
+    if (t.split(' ').contains(g) || g.split(' ').contains(t)) {
+       // Only allow this if the word is substantial
+       if (g.length > 3 && t.length > 3) return true;
+    }
 
-    // Fuzzy: Levenshtein distance on title
-    if (g.length >= 4 && _levenshtein(g, t) <= 2) return true;
+    // Advanced Fuzzy Matching using Levenshtein distance
+    final distance = _levenshtein(g, t);
+    
+    // Dynamic threshold based on actual title length:
+    // - > 10 chars: allow 3 wrong
+    // - 7 to 10 chars: allow 2 wrong
+    // - <= 6 chars: allow 1 wrong
+    int threshold;
+    if (t.length > 10) {
+      threshold = 3;
+    } else if (t.length > 6) {
+      threshold = 2;
+    } else {
+      threshold = 1;
+    }
 
-    // Fuzzy: Levenshtein on first artist name
-    final firstArtist = a.split(',').first.trim();
-    if (g.length >= 4 && _levenshtein(g, firstArtist) <= 2) return true;
-
-    return false;
+    return distance <= threshold;
   }
 
-  String _normalize(String s) =>
-      s.toLowerCase().replaceAll(RegExp(r"[^a-z0-9\s]"), '').trim();
+  /// Normalizes strings for matching: lowercases, removes special characters,
+  /// and strips common song title suffixes like "(feat. ...)" or "- Remastered".
+  String _normalize(String s) {
+    String res = s.toLowerCase();
+    
+    // Remove common suffixes that users shouldn't be penalized for missing
+    res = res.replaceAll(RegExp(r"[(\[].*?[)\]]"), ""); // Everything in () or []
+    res = res.replaceAll(RegExp(r"\s-\s.*$"), "");       // Everything after " - "
+    res = res.replaceAll(RegExp(r"feat\..*$", caseSensitive: false), "");
+    
+    // Remove all non-alphanumeric except spaces
+    res = res.replaceAll(RegExp(r"[^a-z0-9\s]"), "");
+    
+    // Collapse multiple spaces and trim
+    return res.replaceAll(RegExp(r"\s+"), " ").trim();
+  }
 
-  int _levenshtein(String a, String b) {
-    if (a == b) return 0;
-    if (a.isEmpty) return b.length;
-    if (b.isEmpty) return a.length;
-    final d = List.generate(
-        a.length + 1, (i) => List.generate(b.length + 1, (j) => j == 0 ? i : 0));
-    for (var j = 1; j <= b.length; j++) d[0][j] = j;
-    for (var i = 1; i <= a.length; i++) {
-      for (var j = 1; j <= b.length; j++) {
-        d[i][j] = a[i - 1] == b[j - 1]
-            ? d[i - 1][j - 1]
-            : 1 + [d[i - 1][j], d[i][j - 1], d[i - 1][j - 1]].reduce(min);
+  /// Efficient Levenshtein distance implementation using only two rows of space.
+  int _levenshtein(String s1, String s2) {
+    if (s1 == s2) return 0;
+    if (s1.isEmpty) return s2.length;
+    if (s2.isEmpty) return s1.length;
+
+    // Ensure s2 is the shorter string to minimize space usage
+    if (s1.length < s2.length) {
+      final tmp = s1;
+      s1 = s2;
+      s2 = tmp;
+    }
+
+    final v0 = List<int>.generate(s2.length + 1, (i) => i);
+    final v1 = List<int>.filled(s2.length + 1, 0);
+
+    for (var i = 0; i < s1.length; i++) {
+      v1[0] = i + 1;
+
+      for (var j = 0; j < s2.length; j++) {
+        final cost = (s1[i] == s2[j]) ? 0 : 1;
+        v1[j + 1] = [v1[j] + 1, v0[j + 1] + 1, v0[j] + cost].reduce(min);
+      }
+
+      for (var j = 0; j <= s2.length; j++) {
+        v0[j] = v1[j];
       }
     }
-    return d[a.length][b.length];
+
+    return v0[s2.length];
   }
 }

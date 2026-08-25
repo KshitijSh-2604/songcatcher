@@ -30,10 +30,7 @@ class DefaultFirebaseOptions {
           'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for windows - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -77,4 +74,14 @@ class DefaultFirebaseOptions {
     iosBundleId: 'com.example.songcatcher',
   );
 
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyAdhNwqnOHEu7zl0DI1ga6hOnczhCoo0co',
+    appId: '1:286054429599:web:d6175a31a341ac7b1d83aa',
+    messagingSenderId: '286054429599',
+    projectId: 'songcatcher-fcf35',
+    authDomain: 'songcatcher-fcf35.firebaseapp.com',
+    databaseURL: 'https://songcatcher-fcf35-default-rtdb.firebaseio.com',
+    storageBucket: 'songcatcher-fcf35.firebasestorage.app',
+    measurementId: 'G-3NLHNM9F7L',
+  );
 }

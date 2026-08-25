@@ -22,3 +22,11 @@ final isRegisteredUserProvider = Provider<bool>((ref) {
   if (user == null) return false;
   return !user.isAnonymous;
 });
+
+/// True if the user is a developer/admin
+final isDevProvider = Provider<bool>((ref) {
+  final user = ref.watch(currentUserProvider);
+  if (user == null) return false;
+  // Specific dev email check
+  return user.email == 'kshitij466e@gmail.com';
+});

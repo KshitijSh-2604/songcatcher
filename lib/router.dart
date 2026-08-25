@@ -9,6 +9,10 @@ import 'screens/home/home_screen.dart';
 import 'screens/lobby/lobby_screen.dart';
 import 'screens/game/game_screen.dart';
 import 'screens/results/results_screen.dart';
+import 'screens/home/profile_screen.dart';
+import 'screens/home/leaderboard_screen.dart';
+
+import 'screens/game/daily_challenge_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authAsync = ref.watch(authProvider);
@@ -51,6 +55,24 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const HomeScreen(),
       ),
       GoRoute(
+        path: '/profile',
+        builder: (_, __) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: '/leaderboard',
+        builder: (_, __) => const LeaderboardScreen(),
+      ),
+      GoRoute(
+        path: '/daily',
+        builder: (_, __) => const DailyChallengeScreen(),
+      ),
+      GoRoute(
+        path: '/daily/:vibe',
+        builder: (_, state) => DailyChallengeScreen(
+          initialVibe: state.pathParameters['vibe'],
+        ),
+      ),
+      GoRoute(
         path: '/lobby/:roomId',
         builder: (_, state) => LobbyScreen(
           roomId: state.pathParameters['roomId']!,
@@ -85,7 +107,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             const SizedBox(height: 8),
             Text(
               state.error?.message ?? 'Unknown error',
-              style: const TextStyle(color: Colors.white54),
+              style: TextStyle(color: Theme.of(context).hintColor),
             ),
             const SizedBox(height: 24),
             FilledButton(

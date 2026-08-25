@@ -50,9 +50,9 @@ class _RoundTimerWidgetState extends State<RoundTimerWidget> {
   }
 
   Color get _color {
-    if (_remaining > 15) return Colors.green;
-    if (_remaining > 8)  return Colors.orange;
-    return Colors.red;
+    if (_remaining > 15) return const Color(0xFF4CAF50); // Skribbl Green
+    if (_remaining > 8)  return const Color(0xFFFFC107); // Skribbl Yellow/Orange
+    return const Color(0xFFF44336); // Skribbl Red
   }
 
   String get _stageLabel => '${widget.revealedSeconds}s clip';
@@ -63,9 +63,9 @@ class _RoundTimerWidgetState extends State<RoundTimerWidget> {
       padding: EdgeInsets.symmetric(
           horizontal: context.fs(11, max: 16), vertical: context.fs(5, max: 8)),
       decoration: BoxDecoration(
-        color: _color.withOpacity(0.15),
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _color.withOpacity(0.5)),
+        border: Border.all(color: _color.withOpacity(0.5), width: 1.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -76,14 +76,14 @@ class _RoundTimerWidgetState extends State<RoundTimerWidget> {
             '${_remaining}s',
             style: TextStyle(
                 color: _color,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w800,
                 fontSize: context.ff(14, max: 18)),
           ),
           SizedBox(width: context.fs(6, max: 10)),
           Text(
             '($_stageLabel)',
             style: TextStyle(
-                color: Colors.white54, fontSize: context.ff(11, max: 13)),
+                color: Theme.of(context).hintColor, fontSize: context.ff(11, max: 13)),
           ),
         ],
       ),

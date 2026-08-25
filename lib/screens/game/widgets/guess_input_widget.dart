@@ -1,10 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/room.dart';
+import '../../../providers/room_provider.dart';
 import '../../../services/game_service.dart';
 import '../../../utils/responsive.dart';
 
-class GuessInputWidget extends StatefulWidget {
+class GuessInputWidget extends ConsumerStatefulWidget {
   final String roomId;
   final Room room;
   final String userId;
@@ -21,10 +23,10 @@ class GuessInputWidget extends StatefulWidget {
   });
 
   @override
-  State<GuessInputWidget> createState() => _GuessInputWidgetState();
+  ConsumerState<GuessInputWidget> createState() => _GuessInputWidgetState();
 }
 
-class _GuessInputWidgetState extends State<GuessInputWidget> {
+class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
   final _ctrl = TextEditingController();
   final _focusNode = FocusNode();
   bool _guessedCorrectly = false;
@@ -120,28 +122,30 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
     }
   }
 
+  Future<void> _voteSkip() async {
+    if (widget.room.skipVotes.contains(widget.userId)) return;
+    await widget.gameService.voteToSkip(widget.roomId, widget.userId);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasVotedSkip = widget.room.skipVotes.contains(widget.userId);
+
     if (_guessedCorrectly) {
       return Container(
-        padding: EdgeInsets.symmetric(
-            horizontal: context.fs(16, max: 24), vertical: context.fs(13, max: 20)),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.1),
-          border: Border(top: BorderSide(color: Colors.green.withOpacity(0.3))),
+          color: const Color(0xFF00FF00).withOpacity(0.1),
+          border: Border(top: BorderSide(color: Theme.of(context).dividerColor, width: 2)),
         ),
-        child: Row(
+        child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_rounded,
-                color: Colors.greenAccent, size: context.ff(18, max: 24)),
-            SizedBox(width: context.fs(8, max: 12)),
+            Icon(Icons.check_circle, color: Color(0xFF026E00)),
+            SizedBox(width: 12),
             Text(
-              'You caught it! Waiting for others...',
-              style: TextStyle(
-                  color: Colors.greenAccent,
-                  fontWeight: FontWeight.w600,
-                  fontSize: context.ff(13, max: 16)),
+              'YOU CAUGHT IT!',
+              style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF026E00)),
             ),
           ],
         ),
@@ -149,53 +153,81 @@ class _GuessInputWidgetState extends State<GuessInputWidget> {
     }
 
     return Container(
-      padding: EdgeInsets.fromLTRB(
-        context.fs(10, max: 18),
-        context.fs(9, max: 14),
-        context.fs(10, max: 18),
-        context.fs(10, max: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor, width: 3)),
       ),
-      decoration: const BoxDecoration(
-        color: Color(0x08FFFFFF),
-        border: Border(top: BorderSide(color: Colors.white12)),
-      ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _ctrl,
-              focusNode: _focusNode,
-              enabled: !_submitting,
-              textInputAction: TextInputAction.send,
-              // Never call setState in onChanged — that's what caused the
-              // freeze. Only submit on send action or button tap.
-              onSubmitted: (_) => _submitGuess(),
-              autocorrect: false,
-              enableSuggestions: false,
-              style: TextStyle(fontSize: context.ff(14, max: 17)),
-              decoration: InputDecoration(
-                hintText: 'Song title or artist name...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
-                contentPadding: EdgeInsets.symmetric(
-                    horizontal: context.fs(14, max: 22), vertical: context.fs(10, max: 15)),
+          Row(
+            children: [
+              Expanded(
+                child: NeubrutalistContainer(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  shadowOffset: 0,
+                  color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withOpacity(0.1) : Colors.white,
+                  borderWidth: 2,
+                  child: TextField(
+                    controller: _ctrl,
+                    focusNode: _focusNode,
+                    enabled: !_submitting,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _submitGuess(),
+                    style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).textTheme.bodyLarge?.color),
+                    decoration: InputDecoration(
+                      hintText: 'Song title...',
+                      hintStyle: TextStyle(color: Theme.of(context).hintColor),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: _submitting ? null : _submitGuess,
+                child: NeubrutalistContainer(
+                  padding: const EdgeInsets.all(12),
+                  color: Theme.of(context).primaryColor,
+                  shadowOffset: 2,
+                  child: _submitting
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.send, color: Colors.white, size: 20),
+                ),
+              ),
+            ],
           ),
-          SizedBox(width: context.fs(6, max: 10)),
-          FilledButton(
-            onPressed: _submitting ? null : _submitGuess,
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.purpleAccent,
-              shape: const CircleBorder(),
-              padding: EdgeInsets.all(context.fs(12, max: 17)),
-            ),
-            child: _submitting
-                ? SizedBox(
-              width: context.ff(16, max: 20),
-              height: context.ff(16, max: 20),
-              child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-            )
-                : Icon(Icons.send_rounded, size: context.ff(18, max: 23)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Skips: ${widget.room.skipVotes.length} / ${(ref.watch(playersProvider(widget.roomId)).valueOrNull?.length ?? 1 / 2).ceil()}',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Theme.of(context).hintColor),
+                ),
+              ),
+              GestureDetector(
+                onTap: hasVotedSkip ? null : _voteSkip,
+                child: NeubrutalistContainer(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  color: hasVotedSkip ? Theme.of(context).disabledColor : const Color(0xFFFFFF00),
+                  shadowOffset: hasVotedSkip ? 0 : 2,
+                  borderWidth: 2,
+                  child: Text(
+                    hasVotedSkip ? 'VOTED SKIP' : 'VOTE SKIP',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900, 
+                      fontSize: 10,
+                      color: hasVotedSkip ? Theme.of(context).hintColor : Colors.black,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

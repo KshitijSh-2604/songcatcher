@@ -64,6 +64,10 @@ class SongAudioService {
     await _player.pause();
   }
 
+  Future<void> setVolume(double volume) async {
+    await _player.setVolume(volume);
+  }
+
   bool get isPlaying => _player.playing;
 
   void dispose() {

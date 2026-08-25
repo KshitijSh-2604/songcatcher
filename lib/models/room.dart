@@ -15,8 +15,14 @@ class Room {
   final Timestamp? roundStartedAt;
   final String? language;
   final String? genre;
+  final List<String> selectedVibes;
+  final List<int> selectedClipStages;
   final int yearFrom;
   final int yearTo;
+  final bool isPublic;
+  final List<String> skipVotes;
+  final bool isSkipped;
+  final int startCountdown;
 
   const Room({
     required this.id,
@@ -31,8 +37,14 @@ class Room {
     this.roundStartedAt,
     this.language,
     this.genre,
+    this.selectedVibes = const ['Bollywood'],
+    this.selectedClipStages = const [2, 3, 5],
     this.yearFrom = 1950,
     this.yearTo = 2020,
+    this.isPublic = false,
+    this.skipVotes = const [],
+    this.isSkipped = false,
+    this.startCountdown = 0,
   });
 
   factory Room.fromMap(String id, Map<String, dynamic> d) {
@@ -52,8 +64,14 @@ class Room {
       roundStartedAt: d['roundStartedAt'] as Timestamp?,
       language: d['language'] as String?,
       genre: d['genre'] as String?,
+      selectedVibes: List<String>.from(d['selectedVibes'] ?? ['Bollywood']),
+      selectedClipStages: List<int>.from(d['selectedClipStages'] ?? [2, 3, 5]),
       yearFrom: (d['yearFrom'] as num?)?.toInt() ?? 1950,
       yearTo: (d['yearTo'] as num?)?.toInt() ?? 2020,
+      isPublic: d['isPublic'] ?? false,
+      skipVotes: List<String>.from(d['skipVotes'] ?? []),
+      isSkipped: d['isSkipped'] ?? false,
+      startCountdown: (d['startCountdown'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -69,8 +87,14 @@ class Room {
     if (roundStartedAt != null) 'roundStartedAt': roundStartedAt,
     if (language != null) 'language': language,
     if (genre != null) 'genre': genre,
+    'selectedVibes': selectedVibes,
+    'selectedClipStages': selectedClipStages,
     'yearFrom': yearFrom,
     'yearTo': yearTo,
+    'isPublic': isPublic,
+    'skipVotes': skipVotes,
+    'isSkipped': isSkipped,
+    'startCountdown': startCountdown,
   };
 
   Room copyWith({
@@ -82,13 +106,20 @@ class Room {
     Timestamp? roundStartedAt,
     String? language,
     String? genre,
+    List<String>? selectedVibes,
+    List<int>? selectedClipStages,
     String? difficulty,
     int? yearFrom,
     int? yearTo,
+    bool? isPublic,
+    String? hostId,
+    List<String>? skipVotes,
+    bool? isSkipped,
+    int? startCountdown,
   }) {
     return Room(
       id:              id,
-      hostId:          hostId,
+      hostId:          hostId          ?? this.hostId,
       code:            code,
       status:          status          ?? this.status,
       currentRound:    currentRound    ?? this.currentRound,
@@ -98,9 +129,15 @@ class Room {
       roundStartedAt:  roundStartedAt  ?? this.roundStartedAt,
       language:        language        ?? this.language,
       genre:           genre           ?? this.genre,
+      selectedVibes:   selectedVibes   ?? this.selectedVibes,
+      selectedClipStages: selectedClipStages ?? this.selectedClipStages,
       difficulty:      difficulty      ?? this.difficulty,
       yearFrom:        yearFrom        ?? this.yearFrom,
       yearTo:          yearTo          ?? this.yearTo,
+      isPublic:        isPublic        ?? this.isPublic,
+      skipVotes:       skipVotes       ?? this.skipVotes,
+      isSkipped:       isSkipped       ?? this.isSkipped,
+      startCountdown:  startCountdown  ?? this.startCountdown,
     );
   }
 }

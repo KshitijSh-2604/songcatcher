@@ -14,9 +14,6 @@ import 'widgets/guess_input_widget.dart';
 import 'widgets/guess_history_widget.dart';
 import 'widgets/scoreboard_widget.dart';
 import 'widgets/round_reveal_widget.dart';
-import 'widgets/round_timer_widget.dart';
-// TODO: import your chat widget here once you paste it, e.g.:
-// import 'widgets/chat_widget.dart';
 
 class GameScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -38,10 +35,18 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   // Prevent double-fire of the all-guessed trigger within a single round.
   bool _allGuessedTriggered = false;
+  bool _skipped = false;
 
   Timer? _stageTimer;
 
-  static const _stages = [2, 3, 5, 10];
+  @override
+  void initState() {
+    super.initState();
+    // Record current room ID for sidebar persistence
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(currentRoomIdProvider.notifier).state = widget.roomId;
+    });
+  }
 
   @override
   void dispose() {
@@ -50,40 +55,26 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     super.dispose();
   }
 
-  // ── Load + auto-play ──────────────────────────────────────────────────────
+  // ── Stage timer (host only) ───────────────────────────────
 
-  Future<void> _loadAndAutoPlay(Room room) async {
-    final songData = room.currentSong;
-    if (songData == null) return;
-
-    final songId        = songData['id']             as String? ?? '';
-    final audioUrl      = songData['audioUrl']       as String? ?? '';
-    final silenceOffset = (songData['silenceOffset'] as num?)?.toInt() ?? 0;
-    if (audioUrl.isEmpty) return;
-
-    if (_loadedSongId != songId) {
-      _loadedSongId = songId;
-      await _audioService.loadSong(audioUrl, silenceOffset: silenceOffset);
-    }
-    _audioService.playClip(room.revealedSeconds);
-  }
-
-  // ── Stage timer (host only, 30 s per stage) ───────────────────────────────
-
-  void _startStageTimer(int currentStage, bool isHost) {
+  void _startStageTimer(Room room, bool isHost, {int delaySeconds = 0}) {
     _stageTimer?.cancel();
     if (!isHost) return;
 
-    _stageTimer = Timer(const Duration(seconds: 30), () async {
+    final currentStage = room.revealedSeconds;
+    final stages = room.selectedClipStages;
+    final duration = GameService.getRoundDurationForStage(currentStage);
+
+    _stageTimer = Timer(Duration(seconds: duration + delaySeconds), () async {
       if (!mounted) return;
-      final idx = _stages.indexOf(currentStage);
-      if (idx >= 0 && idx < _stages.length - 1) {
+      final idx = stages.indexOf(currentStage);
+      if (idx >= 0 && idx < stages.length - 1) {
         // Not the last stage — advance clip length.
-        await _gameService.revealMoreClip(widget.roomId, _stages[idx + 1]);
+        await _gameService.revealMoreClip(widget.roomId, stages[idx + 1]);
       } else {
-        // Last stage (10 s) expired — end the round.
+        // Last stage expired — end the round.
         _audioService.stopClip();
-        _gameService.forceEndRoundIfActive(widget.roomId);
+        await _gameService.forceEndRoundIfActive(widget.roomId);
         if (mounted && !_showReveal) setState(() => _showReveal = true);
       }
     });
@@ -97,11 +88,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   // ── Trigger reveal safely (deferred to next frame) ───────────────────────
-  //
-  // Using addPostFrameCallback means any in-progress widget rebuilds (e.g.
-  // GuessInputWidget finishing its async _onSubmit) complete first. This
-  // prevents the host's guess input from appearing frozen when it is the
-  // last player to guess and the all-guessed detection fires mid-await.
 
   void _triggerReveal() {
     if (_showReveal || _allGuessedTriggered) return;
@@ -127,41 +113,51 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       final room = next.valueOrNull;
       if (room == null || !mounted) return;
 
+      // Host Handover Logic
+      final players = ref.read(playersProvider(widget.roomId)).valueOrNull ?? [];
+      final hostExists = players.any((p) => p.id == room.hostId);
+      if (!hostExists && players.isNotEmpty && user?.uid == players.first.id) {
+        _gameService.handleHostHandover(widget.roomId);
+      }
+
       if (room.currentRound != _prevRound) {
         // New round — reset everything.
         _prevRound            = room.currentRound;
         _prevRevealedSeconds  = room.revealedSeconds;
         _allGuessedTriggered  = false;
+        _skipped              = false;
         if (_showReveal) setState(() => _showReveal = false);
-        _loadAndAutoPlay(room);
-        _startStageTimer(room.revealedSeconds, isHost);
+        // We'll let ClipPlayerWidget handle the visual countdown 
+        // and then it will call onSongLoad (which is fine).
+        // But for AutoPlay, we should delay it if we want a countdown.
+        _startStageTimer(room, isHost, delaySeconds: 3); // Add 3s delay to account for countdown
         return;
       }
 
       if (room.revealedSeconds != _prevRevealedSeconds) {
-        // Stage advanced — auto-play new clip length, restart timer.
+        // Stage advanced — restart timer.
         _prevRevealedSeconds = room.revealedSeconds;
-        _audioService.playClip(room.revealedSeconds);
-        _startStageTimer(room.revealedSeconds, isHost);
+        _startStageTimer(room, isHost, delaySeconds: 3); // Add 3s delay
+      }
+
+      // Check for Skip Votes
+      if (players.isNotEmpty && room.status == RoomStatus.playing && !_skipped) {
+        if (room.skipVotes.length >= (players.length / 2).ceil()) {
+          _skipped = true;
+          _gameService.skipRound(widget.roomId);
+        }
       }
     });
 
     // ── All players guessed → reveal card ───────────────────────────────
-    //
-    // Guards:
-    //   1. room.status must be RoomStatus.playing (not a leftover state)
-    //   2. _prevRound must match room.currentRound (not a stale players snapshot
-    //      from the previous round where hasGuessedCorrectly was never reset)
-    //   3. _allGuessedTriggered prevents double-fire within the same round
     ref.listen(playersProvider(widget.roomId), (_, next) {
       final players = next.valueOrNull;
       if (players == null || players.isEmpty || !mounted) return;
 
-      // Read current room to validate status and round.
       final room = ref.read(roomProvider(widget.roomId)).valueOrNull;
       if (room == null) return;
       if (room.status != RoomStatus.playing) return;
-      if (room.currentRound != _prevRound) return; // stale snapshot
+      if (room.currentRound != _prevRound) return; 
       if (_showReveal || _allGuessedTriggered) return;
 
       if (players.every((p) => p.hasGuessedCorrectly)) {
@@ -191,135 +187,170 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             room.status == RoomStatus.roundEnded;
         final displayName = user?.displayName ?? 'Player';
 
-        return Scaffold(
-          appBar: AppBar(
-            automaticallyImplyLeading: false,
-            title: _RoundIndicator(
-                current: room.currentRound, total: room.totalRounds),
-            actions: [
-              if (!roundIsOver && room.roundStartedAt != null)
-                Padding(
-                  padding: EdgeInsets.only(right: context.fs(8, max: 14)),
-                  child: RoundTimerWidget(
-                    key: ValueKey(
-                        '${room.currentRound}_${room.revealedSeconds}'),
-                    totalSeconds: 30,
-                    revealedSeconds: room.revealedSeconds,
-                    onRoundEnd: () {
-                      // Client-side safety fallback for non-host only.
-                      // The host's _stageTimer handles the authoritative end.
-                      if (!_showReveal && !isHost) {
-                        _triggerReveal();
-                      }
-                    },
-                  ),
+        return PageShell(
+          showHeader: true,
+          showSidebar: false, 
+          padding: EdgeInsets.zero,
+          child: PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, result) async {
+              if (didPop) return;
+              
+              final shouldLeave = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Leave Match?'),
+                  content: const Text('Are you sure you want to quit this live match? You will lose your current progress.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('STAY')),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, true), 
+                      child: const Text('LEAVE', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
                 ),
-              _PlayerCountBadge(roomId: widget.roomId),
-              SizedBox(width: context.fs(6, max: 12)),
-            ],
-          ),
-          body: Stack(
-            children: [
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth >= 700;
+              );
 
-                  final body = _GameBody(
-                    room: room,
-                    roomId: widget.roomId,
-                    userId: user!.uid,
-                    displayName: displayName,
-                    isHost: isHost,
-                    audioService: _audioService,
-                    gameService: _gameService,
-                    onSongLoad: _onSongLoad,
-                    onEndRound: () {
-                      _stageTimer?.cancel();
-                      _audioService.stopClip();
-                      _allGuessedTriggered = true;
-                      setState(() => _showReveal = true);
-                    },
-                  );
-
-                  if (!isWide) return body;
-
-                  final sidebarWidth =
-                  (constraints.maxWidth * 0.22).clamp(180.0, 280.0);
-
-                  return Row(
-                    children: [
-                      Expanded(flex: 3, child: body),
-                      const VerticalDivider(width: 1),
-                      SizedBox(
-                        width: sidebarWidth,
-                        child: ScoreboardWidget(roomId: widget.roomId),
+              if (shouldLeave == true && mounted) {
+                ref.read(currentRoomIdProvider.notifier).state = null;
+                context.go('/home');
+              }
+            },
+            child: SizedBox(
+              height: context.screenHeight - 70, 
+              child: Column(
+                children: [
+                  if (context.isMobile)
+                    Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Row(
+                        children: [
+                          NeubrutalistButton(
+                            label: '← QUIT',
+                            color: Colors.white,
+                            onPressed: () => Navigator.maybePop(context),
+                          ),
+                        ],
                       ),
-                    ],
-                  );
-                },
+                    ),
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // ── Left: Leaderboard ─────────────────────────────────
+                        if (!context.isMobile)
+                          Container(
+                            width: context.fw(240, max: 300),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              border: Border(right: BorderSide(color: Colors.black, width: 3)),
+                            ),
+                            child: Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: NeubrutalistButton(
+                                    label: '← QUIT MATCH',
+                                    color: Colors.white,
+                                    onPressed: () => Navigator.maybePop(context),
+                                  ),
+                                ),
+                                Expanded(child: ScoreboardWidget(roomId: widget.roomId)),
+                              ],
+                            ),
+                          ),
+
+                        // ── Center: Game Canvas ────────────────────────────────
+                        Expanded(
+                          flex: 3,
+                          child: Stack(
+                            children: [
+                              _GameBody(
+                                room: room,
+                                roomId: widget.roomId,
+                                userId: user!.uid,
+                                displayName: displayName,
+                                isHost: isHost,
+                                audioService: _audioService,
+                                gameService: _gameService,
+                                onSongLoad: _onSongLoad,
+                                onEndRound: () {
+                                  _stageTimer?.cancel();
+                                  _audioService.stopClip();
+                                  _allGuessedTriggered = true;
+                                  setState(() => _showReveal = true);
+                                },
+                              ),
+                              if (roundIsOver && room.currentSong != null)
+                                RoundRevealWidget(
+                                  roomId: widget.roomId,
+                                  song: Song.fromMap(room.currentSong!),
+                                  isHost: isHost,
+                                  isSkipped: room.isSkipped,
+                                  onNextRound: () {
+                                    _stageTimer?.cancel();
+                                    _allGuessedTriggered = false;
+                                    _gameService.endRound(widget.roomId, room);
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
+
+                        // ── Right: Live Chat ──────────────────────────────────
+                        if (!context.isMobile)
+                          Container(
+                            width: context.fw(260, max: 340),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              border: Border(left: BorderSide(color: Colors.black, width: 3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(16),
+                                  color: const Color(0xFF720100), 
+                                  child: const Row(
+                                    children: [
+                                      Icon(Icons.chat_bubble_outline, color: Colors.white),
+                                      SizedBox(width: 12),
+                                      Text(
+                                        'Live Chat',
+                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child: GuessHistoryWidget(
+                                    roomId: widget.roomId,
+                                    userId: user.uid,
+                                    roundNumber: room.currentRound,
+                                  ),
+                                ),
+                                GuessInputWidget(
+                                  roomId: widget.roomId,
+                                  room: room,
+                                  userId: user.uid,
+                                  displayName: displayName,
+                                  gameService: _gameService,
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              if (roundIsOver && room.currentSong != null)
-                RoundRevealWidget(
-                  roomId: widget.roomId,
-                  song: Song.fromMap(room.currentSong!),
-                  isHost: isHost,
-                  onNextRound: () {
-                    _stageTimer?.cancel();
-                    _allGuessedTriggered = false;
-                    _gameService.endRound(widget.roomId, room);
-                  },
-                ),
-            ],
+            ),
           ),
         );
       },
     );
   }
 }
-
-// ── Round Indicator ───────────────────────────────────────────────────────────
-
-class _RoundIndicator extends StatelessWidget {
-  final int current;
-  final int total;
-  const _RoundIndicator({required this.current, required this.total});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('🎵 ', style: TextStyle(fontSize: context.ff(14, max: 18))),
-        Text('Round $current / $total',
-            style: TextStyle(fontSize: context.ff(14, max: 18))),
-      ],
-    );
-  }
-}
-
-// ── Player Count Badge ────────────────────────────────────────────────────────
-
-class _PlayerCountBadge extends ConsumerWidget {
-  final String roomId;
-  const _PlayerCountBadge({required this.roomId});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final playersAsync = ref.watch(playersProvider(roomId));
-    return playersAsync.when(
-      data: (players) => Chip(
-        avatar: Icon(Icons.people, size: context.ff(13, max: 16)),
-        label: Text('${players.length}',
-            style: TextStyle(fontSize: context.ff(12, max: 14))),
-        visualDensity: VisualDensity.compact,
-      ),
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-    );
-  }
-}
-
-// ── Game Body ─────────────────────────────────────────────────────────────────
 
 class _GameBody extends StatelessWidget {
   final Room room;
@@ -357,24 +388,24 @@ class _GameBody extends StatelessWidget {
               gameService.revealMoreClip(roomId, seconds),
           onEndRound: onEndRound,
         ),
-        const Divider(height: 1),
-        // ── Guess history / unified chat ─────────────────────────────
-        // TODO: if you have a ChatWidget, replace or wrap GuessHistoryWidget:
-        //   Expanded(child: ChatWidget(roomId: roomId)),
-        Expanded(
-          child: GuessHistoryWidget(
-            roomId: roomId,
-            userId: userId,
-            roundNumber: room.currentRound,
+        const Divider(height: 1, color: Color(0xFFD4D9E2)),
+        if (context.isMobile) ...[
+          Expanded(
+            child: GuessHistoryWidget(
+              roomId: roomId,
+              userId: userId,
+              roundNumber: room.currentRound,
+            ),
           ),
-        ),
-        GuessInputWidget(
-          roomId: roomId,
-          room: room,
-          userId: userId,
-          displayName: displayName,
-          gameService: gameService,
-        ),
+          GuessInputWidget(
+            roomId: roomId,
+            room: room,
+            userId: userId,
+            displayName: displayName,
+            gameService: gameService,
+          ),
+        ] else
+          const Spacer(),
       ],
     );
   }

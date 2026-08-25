@@ -72,10 +72,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                       height: logoSize,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.purpleAccent.withOpacity(0.15),
+                        color: Colors.white,
+                        border: Border.all(color: Theme.of(context).primaryColor, width: 3),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.purpleAccent.withOpacity(0.3),
+                            color: Theme.of(context).primaryColor.withOpacity(0.2),
                             blurRadius: context.fs(32, max: 50),
                             spreadRadius: context.fs(8, max: 13),
                           ),
@@ -91,7 +92,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                     Text(
                       'SongCatcher',
                       style: TextStyle(
-                        color: Colors.purpleAccent,
+                        color: Theme.of(context).primaryColor,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1,
                         fontSize: context.ff(30, max: 46),
@@ -103,7 +104,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                     Text(
                       'Catch the song before anyone else!',
                       style: TextStyle(
-                        color: Colors.white38,
+                        color: Colors.black54,
                         fontSize: context.ff(12, max: 15),
                         letterSpacing: 0.5,
                       ),
@@ -114,7 +115,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                     Text(
                       'songcatcher.io',
                       style: TextStyle(
-                        color: Colors.white24,
+                        color: Colors.black26,
                         fontSize: context.ff(10, max: 12),
                         letterSpacing: 2,
                       ),
@@ -125,7 +126,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                     SizedBox(
                       width: context.ff(20, max: 26),
                       height: context.ff(20, max: 26),
-                      child: const CircularProgressIndicator(color: Colors.purpleAccent, strokeWidth: 2.5),
+                      child: CircularProgressIndicator(color: Theme.of(context).primaryColor, strokeWidth: 2.5),
                     ),
                   ],
                 ),
