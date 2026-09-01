@@ -39,13 +39,15 @@ class ScoringService {
 
     // Small in-stage speed bonus: guessing right at the start of a stage
     // scores closer to the ceiling than guessing right before it ends.
-    final speedRatio = (1 - (elapsedMs / 15000)).clamp(0.0, 1.0);
-    final speedAdjusted = ceiling * (0.7 + 0.3 * speedRatio);
+    // Based on typical round duration (10s - 30s)
+    final stageDurationMs = (revealedSeconds <= 2) ? 10000 : (revealedSeconds <= 5 ? 15000 : 20000);
+    final speedRatio = (1 - (elapsedMs / stageDurationMs)).clamp(0.0, 1.0);
+    final speedAdjusted = ceiling * (0.8 + 0.2 * speedRatio);
 
     int points = (speedAdjusted * multiplier).round();
     if (isFirstCorrect) points += _firstBonus;
 
-    return points.clamp(_minScore, 1000);
+    return points.clamp(_minScore, 1200);
   }
 
   // ── Fuzzy guess matching ─────────────────────────────────────────────────

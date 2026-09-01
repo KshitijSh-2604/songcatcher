@@ -275,7 +275,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             onPressed: () => Navigator.maybePop(context),
                           ),
                           const Spacer(),
-                          if (isHost) ...[
+                          if (isHost && (roundIsOver || room.isPaused)) ...[
                             _PauseButton(
                               isPaused: room.isPaused,
                               onToggle: () => _gameService.togglePause(widget.roomId, !room.isPaused),

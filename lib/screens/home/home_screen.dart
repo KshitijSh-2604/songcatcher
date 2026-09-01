@@ -279,21 +279,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: context.isMobile 
               ? Column(
                   children: [
-                    _MatchTypeCard(
-                      icon: Icons.public,
-                      label: 'Public Arena',
-                      sublabel: 'Join any open match instantly.',
-                      iconColor: const Color(0xFF4D4DFF),
-                      onTap: () => _quickJoin(),
-                    ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideY(begin: 0.1),
-                    const SizedBox(height: 12),
-                    _MatchTypeCard(
-                      icon: Icons.vpn_key_outlined,
-                      label: 'Host Arena',
-                      sublabel: 'Create a room and invite friends.',
-                      iconColor: const Color(0xFF00FF00),
-                      onTap: () => _createRoom(isPublic: false),
-                    ).animate().fadeIn(delay: const Duration(milliseconds: 700)).slideY(begin: 0.1),
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: _MatchTypeCard(
+                              icon: Icons.public,
+                              label: 'Public',
+                              sublabel: 'Join instantly',
+                              iconColor: const Color(0xFF4D4DFF),
+                              onTap: () => _quickJoin(),
+                            ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideX(begin: -0.1),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _MatchTypeCard(
+                              icon: Icons.vpn_key_outlined,
+                              label: 'Host',
+                              sublabel: 'With friends',
+                              iconColor: const Color(0xFF00FF00),
+                              onTap: () => _createRoom(isPublic: false),
+                            ).animate().fadeIn(delay: const Duration(milliseconds: 700)).slideX(begin: 0.1),
+                          ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     _MatchTypeCard(
                       icon: Icons.celebration_outlined,
@@ -681,21 +692,46 @@ class _VibeGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final vibes = ['Bollywood', 'Punjabi', 'English', 'International'];
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: vibes.map((v) {
-        final isSelected = selected == v;
-        return SizedBox(
-          width: context.isMobile ? (MediaQuery.of(context).size.width - 44) / 2 : null,
-          child: _VibeButton(
-            label: v,
-            color: isSelected ? const Color(0xFF4D4DFF) : null,
-            textColor: isSelected ? Colors.white : null,
-            onTap: () => onSelect(v),
+    
+    if (context.isMobile) {
+      return Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _buildVibeButton(vibes[0])),
+              const SizedBox(width: 12),
+              Expanded(child: _buildVibeButton(vibes[1])),
+            ],
           ),
-        );
-      }).toList(),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: _buildVibeButton(vibes[2])),
+              const SizedBox(width: 12),
+              Expanded(child: _buildVibeButton(vibes[3])),
+            ],
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: vibes.map((v) => Expanded(
+        child: Padding(
+          padding: EdgeInsets.only(right: v == vibes.last ? 0 : 12),
+          child: _buildVibeButton(v),
+        ),
+      )).toList(),
+    );
+  }
+
+  Widget _buildVibeButton(String v) {
+    final isSelected = selected == v;
+    return _VibeButton(
+      label: v,
+      color: isSelected ? const Color(0xFF4D4DFF) : null,
+      textColor: isSelected ? Colors.white : null,
+      onTap: () => onSelect(v),
     );
   }
 }

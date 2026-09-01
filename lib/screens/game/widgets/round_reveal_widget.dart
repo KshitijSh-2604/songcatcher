@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/song.dart';
 import '../../../utils/responsive.dart';
+import '../../../providers/room_provider.dart';
 
-class RoundRevealWidget extends StatefulWidget {
+class RoundRevealWidget extends ConsumerStatefulWidget {
   final String roomId;
   final Song song;
   final bool isHost;
@@ -21,35 +23,86 @@ class RoundRevealWidget extends StatefulWidget {
   });
 
   @override
-  State<RoundRevealWidget> createState() => _RoundRevealWidgetState();
+  ConsumerState<RoundRevealWidget> createState() => _RoundRevealWidgetState();
 }
 
-class _RoundRevealWidgetState extends State<RoundRevealWidget>
-    with SingleTickerProviderStateMixin {
+class _RoundRevealWidgetState extends ConsumerState<RoundRevealWidget>
+    with TickerProviderStateMixin {
   late final AnimationController _ctrl;
+  late final AnimationController _timerCtrl;
   late final Animation<double>   _fadeAnim;
   late final Animation<Offset>   _slideAnim;
-  Timer? _autoNextTimer;
+  
+  // ⏸️ Pause tracking
+  DateTime? _timerStartedAt;
+  int       _remainingSeconds = 15;
+  Timer?    _autoNextTimer;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 450));
+    
+    _timerCtrl = AnimationController(
+        vsync: this, duration: const Duration(seconds: 15));
+        
     _fadeAnim  = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
     _slideAnim = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
         .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    
     _ctrl.forward();
+    _startTimer(15);
+  }
 
-    _autoNextTimer = Timer(const Duration(seconds: 15), () {
-       if (mounted && widget.isHost) widget.onNextRound();
+  void _startTimer(int seconds) {
+    _autoNextTimer?.cancel();
+    _timerCtrl.duration = Duration(seconds: seconds);
+    // Restart animation from the visual point that matches the remaining time
+    _timerCtrl.forward(from: 1.0 - (seconds / 15.0));
+    
+    _timerStartedAt = DateTime.now();
+    _remainingSeconds = seconds;
+
+    _autoNextTimer = Timer(Duration(seconds: seconds), () {
+       if (mounted && widget.isHost) {
+          final room = ref.read(roomProvider(widget.roomId)).valueOrNull;
+          // 🛡️ Final guard to ensure we don't skip while host has game paused
+          if (room != null && !room.isPaused) {
+            widget.onNextRound();
+          }
+       }
     });
+  }
+
+  @override
+  void didUpdateWidget(RoundRevealWidget old) {
+    super.didUpdateWidget(old);
+    
+    final room = ref.read(roomProvider(widget.roomId)).valueOrNull;
+    if (room == null) return;
+
+    // ⏸️ React to Pause
+    if (room.isPaused) {
+      if (_autoNextTimer?.isActive ?? false) {
+        final elapsed = DateTime.now().difference(_timerStartedAt!).inSeconds;
+        _remainingSeconds = (_remainingSeconds - elapsed).clamp(0, 15);
+        _autoNextTimer?.cancel();
+        _timerCtrl.stop();
+      }
+    } else {
+      // 🔄 React to Resume
+      if (!(_autoNextTimer?.isActive ?? false) && _remainingSeconds > 0) {
+        _startTimer(_remainingSeconds);
+      }
+    }
   }
 
   @override
   void dispose() {
     _autoNextTimer?.cancel();
     _ctrl.dispose();
+    _timerCtrl.dispose();
     super.dispose();
   }
 
@@ -66,69 +119,87 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
           color: overlayBg,
           child: Column(
             children: [
-              _TimerBar(duration: 15),
+              AnimatedBuilder(
+                animation: _timerCtrl,
+                builder: (context, _) => LinearProgressIndicator(
+                  value: 1.0 - _timerCtrl.value,
+                  minHeight: 6,
+                  backgroundColor: Colors.transparent,
+                  color: const Color(0xFFFFFF00),
+                ),
+              ),
               Expanded(
                 child: Center(
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: context.fw(380, max: 860)),
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.all(context.fs(20, max: 40)),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          NeubrutalistContainer(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: context.fs(14, max: 20),
-                                vertical: context.fs(5, max: 8)),
-                            color: widget.isSkipped ? Colors.red : const Color(0xFF00FF00),
-                            shadowOffset: 0,
-                            child: Text(
-                              widget.isSkipped ? '🚫 ROUND SKIPPED' : '✅ ROUND OVER',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                color: Colors.black,
-                                fontSize: 14,
-                                letterSpacing: 1.2,
-                              ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: SingleChildScrollView(
+                            padding: EdgeInsets.all(context.fs(16, max: 32)),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                NeubrutalistContainer(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: context.fs(14, max: 20),
+                                      vertical: context.fs(5, max: 8)),
+                                  color: widget.isSkipped ? Colors.red : const Color(0xFF00FF00),
+                                  shadowOffset: 0,
+                                  child: Text(
+                                    widget.isSkipped ? '🚫 ROUND SKIPPED' : '✅ ROUND OVER',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.black,
+                                      fontSize: 14,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ),
+                                Gap(context.fs(16, max: 24)),
+
+                                if (widget.isSkipped)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 24),
+                                    child: Text(
+                                      'Most players voted to skip. No points were awarded.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(fontWeight: FontWeight.w800, color: Colors.red.shade700, fontSize: 13),
+                                    ),
+                                  ),
+
+                                context.twoColumn
+                                    ? _WideCard(song: widget.song, roomId: widget.roomId)
+                                    : _NarrowCard(song: widget.song, roomId: widget.roomId),
+
+                                Gap(context.fs(16, max: 24)),
+                              ],
                             ),
                           ),
-                          Gap(context.fs(22, max: 34)),
+                        ),
 
-                          if (widget.isSkipped)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 24),
-                              child: Text(
-                                'Most players voted to skip. No points were awarded.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontWeight: FontWeight.w800, color: Colors.red.shade700, fontSize: 13),
-                              ),
-                            ),
-
-                          context.twoColumn
-                              ? _WideCard(song: widget.song, roomId: widget.roomId)
-                              : _NarrowCard(song: widget.song, roomId: widget.roomId),
-
-                          Gap(context.fs(20, max: 32)),
-
-                          if (widget.isHost)
-                            SizedBox(
-                              width: double.infinity,
-                              child: NeubrutalistButton(
-                                onPressed: widget.onNextRound,
-                                label: 'NEXT ROUND →',
-                                color: const Color(0xFFFFFF00),
-                              ),
-                            )
-                          else
-                            Text(
-                              'Waiting for host to continue...',
-                              style: TextStyle(
-                                  color: Theme.of(context).hintColor,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: context.ff(12, max: 14)),
-                            ),
-                        ],
-                      ),
+                        // ── Bottom Fixed Action Area ──────────────────────────────
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(24, 0, 24, context.vPad),
+                          child: widget.isHost
+                              ? SizedBox(
+                                  width: double.infinity,
+                                  child: NeubrutalistButton(
+                                    onPressed: widget.onNextRound,
+                                    label: 'NEXT ROUND →',
+                                    color: const Color(0xFFFFFF00),
+                                  ),
+                                )
+                              : Text(
+                                  'Waiting for host to continue...',
+                                  style: TextStyle(
+                                      color: Theme.of(context).hintColor,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: context.ff(12, max: 14)),
+                                ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -136,40 +207,6 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _TimerBar extends StatefulWidget {
-  final int duration;
-  const _TimerBar({required this.duration});
-  @override
-  State<_TimerBar> createState() => _TimerBarState();
-}
-
-class _TimerBarState extends State<_TimerBar> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(vsync: this, duration: Duration(seconds: widget.duration));
-    _ctrl.forward();
-  }
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (context, _) => LinearProgressIndicator(
-        value: 1.0 - _ctrl.value,
-        minHeight: 6,
-        backgroundColor: Colors.transparent,
-        color: const Color(0xFFFFFF00),
       ),
     );
   }
