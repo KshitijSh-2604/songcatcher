@@ -1,5 +1,7 @@
+// UserService handles database operations for user profiles and identity.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -26,11 +28,63 @@ class UserService {
   }
 
   Future<void> createUser(AppUser user) async {
-    await _db.collection('users').doc(user.uid).set(user.toMap());
+    final cleanDisplayName = _filterName(user.displayName);
+    String finalCatcherId = user.catcherId;
+    
+    if (finalCatcherId == 'CATCHER#0000') {
+      finalCatcherId = await generateUniqueCatcherId();
+    }
+
+    final cleanUser = user.copyWith(
+      displayName: cleanDisplayName,
+      catcherId: finalCatcherId,
+      isOnline: true,
+      lastSeen: DateTime.now(),
+    );
+    await _db.collection('users').doc(user.uid).set(cleanUser.toMap());
+  }
+
+  Future<void> updateOnlineStatus(String uid, bool isOnline, {String? activity}) async {
+    await _db.collection('users').doc(uid).update({
+      'isOnline': isOnline,
+      'lastSeen': FieldValue.serverTimestamp(),
+      if (activity != null) 'currentActivity': activity,
+    });
+  }
+
+  Future<void> updateActivity(String uid, String activity) async {
+    await _db.collection('users').doc(uid).update({
+      'currentActivity': activity,
+      'lastSeen': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<String> generateUniqueCatcherId() async {
+    final rand = Random();
+    while (true) {
+      final num = rand.nextInt(9000) + 1000; // 1000-9999
+      final id = 'CATCHER#$num';
+      final snap = await _db.collection('users').where('catcherId', isEqualTo: id).limit(1).get();
+      if (snap.docs.isEmpty) return id;
+    }
   }
 
   Future<void> updateUser(String uid, Map<String, dynamic> data) async {
-    await _db.collection('users').doc(uid).set(data, SetOptions(merge: true));
+    final cleanData = Map<String, dynamic>.from(data);
+    if (cleanData.containsKey('displayName')) {
+      cleanData['displayName'] = _filterName(cleanData['displayName'] as String);
+    }
+    await _db.collection('users').doc(uid).set(cleanData, SetOptions(merge: true));
+  }
+
+  String _filterName(String name) {
+    final explicitWords = ['nigga', 'cock', 'faggot', 'nigger', 'rape', 'porn'];
+    String filtered = name;
+    for (var word in explicitWords) {
+      final regExp = RegExp(word, caseSensitive: false);
+      filtered = filtered.replaceAll(regExp, '*' * word.length);
+    }
+    return filtered;
   }
 
   Future<String?> uploadProfileImage(String uid, Uint8List bytes) async {
@@ -54,32 +108,25 @@ class UserService {
         final json = jsonDecode(responseData);
         final secureUrl = json['secure_url'] as String;
         
-        debugPrint('Cloudinary upload success: $secureUrl');
-        
-        // Optimize the image for fast loading as a 200x200 square.
-        // Since we already cropped to 1:1 in-app, c_fill will just resize it perfectly.
         final timestamp = DateTime.now().millisecondsSinceEpoch;
-        final transformedUrl = secureUrl.replaceFirst('/upload/', '/upload/w_200,h_200,c_fill/') + '?t=$timestamp';
-        
-        await updateUser(uid, {'photoUrl': transformedUrl});
-        return transformedUrl;
-      } else {
-        debugPrint('Cloudinary upload failed: $responseData');
-        throw Exception('Cloudinary upload failed with status ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('!!! uploadProfileImage failed: $e');
-      rethrow;
+      final transformedUrl = secureUrl.replaceFirst('/upload/', '/upload/w_200,h_200,c_fill/') + '?t=$timestamp';
+      
+      await updateUser(uid, {'photoUrl': transformedUrl});
+      return transformedUrl;
+    } else {
+      throw Exception('Cloudinary upload failed');
     }
+  } catch (e) {
+    rethrow;
   }
+}
 
   Future<bool> isPhoneNumberUnique(String phoneNumber) async {
     try {
       final snap = await _db.collection('users').where('phoneNumber', isEqualTo: phoneNumber).limit(1).get();
       return snap.docs.isEmpty;
     } catch (e) {
-      debugPrint('Warning: Could not verify phone uniqueness due to permissions. Ensure "list" rules are set for users collection.');
-      // Fallback: assume unique and let Firebase Auth handle conflicts during linking
+      debugPrint('Warning: Could not verify phone uniqueness due to permissions.');
       return true;
     }
   }
@@ -115,5 +162,54 @@ class UserService {
     );
 
     await updateUser(uid, {'arenaStats': newArenaStats.toMap()});
+  }
+
+  Future<List<AppUser>> searchUsers(String query) async {
+    if (query.isEmpty) return [];
+    
+    if (query.toUpperCase().startsWith('CATCHER#')) {
+      final snap = await _db.collection('users')
+          .where('catcherId', isEqualTo: query.toUpperCase())
+          .limit(1)
+          .get();
+      return snap.docs.map((d) => AppUser.fromMap(d.id, d.data())).toList();
+    }
+
+    final snap = await _db.collection('users')
+        .where('displayName', isGreaterThanOrEqualTo: query)
+        .where('displayName', isLessThanOrEqualTo: '$query\uf8ff')
+        .limit(10)
+        .get();
+        
+    return snap.docs.map((d) => AppUser.fromMap(d.id, d.data())).toList();
+  }
+
+  // ── Global System Notifications ──────────────────────────────────────────
+
+  Future<void> sendGlobalNotification({
+    required String title,
+    required String body,
+    required String senderName,
+  }) async {
+    await _db.collection('global_notifications').add({
+      'title': title,
+      'body': body,
+      'senderName': senderName,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<Map<String, dynamic>>> watchGlobalNotifications() {
+    return _db.collection('global_notifications')
+        .orderBy('timestamp', descending: true)
+        .limit(10)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+  }
+
+  Future<void> updateLastReadGlobalNotification(String uid) async {
+    await updateUser(uid, {
+      'lastReadGlobalNotificationAt': FieldValue.serverTimestamp(),
+    });
   }
 }

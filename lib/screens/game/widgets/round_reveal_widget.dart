@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../../models/song.dart';
@@ -28,6 +29,7 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
   late final AnimationController _ctrl;
   late final Animation<double>   _fadeAnim;
   late final Animation<Offset>   _slideAnim;
+  Timer? _autoNextTimer;
 
   @override
   void initState() {
@@ -38,10 +40,15 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
     _slideAnim = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
         .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
     _ctrl.forward();
+
+    _autoNextTimer = Timer(const Duration(seconds: 15), () {
+       if (mounted && widget.isHost) widget.onNextRound();
+    });
   }
 
   @override
   void dispose() {
+    _autoNextTimer?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
@@ -49,7 +56,7 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final overlayBg = isDark ? Colors.black.withOpacity(0.9) : const Color(0xEEF0F4F8);
+    final overlayBg = isDark ? Colors.black : const Color(0xFFF0F4F8);
 
     return FadeTransition(
       opacity: _fadeAnim,
@@ -57,82 +64,76 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
         position: _slideAnim,
         child: Container(
           color: overlayBg,
-          child: Center(
-            child: ConstrainedBox(
-              // Wider on desktop — up to 860px so the two-column layout
-              // has room to breathe.
-              constraints: BoxConstraints(maxWidth: context.fw(380, max: 860)),
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(context.fs(20, max: 40)),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // ── Header pill ─────────────────────────────────────
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: context.fs(14, max: 20),
-                          vertical: context.fs(5, max: 8)),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
-                        border:
-                        Border.all(color: Theme.of(context).primaryColor.withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        widget.isSkipped ? '🚫 Round Skipped!' : '🎵 Round Over!',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: widget.isSkipped ? Colors.red : Theme.of(context).primaryColor,
-                          fontSize: context.ff(13, max: 16),
-                        ),
+          child: Column(
+            children: [
+              _TimerBar(duration: 15),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: context.fw(380, max: 860)),
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.all(context.fs(20, max: 40)),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          NeubrutalistContainer(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: context.fs(14, max: 20),
+                                vertical: context.fs(5, max: 8)),
+                            color: widget.isSkipped ? Colors.red : const Color(0xFF00FF00),
+                            shadowOffset: 0,
+                            child: Text(
+                              widget.isSkipped ? '🚫 ROUND SKIPPED' : '✅ ROUND OVER',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                color: Colors.black,
+                                fontSize: 14,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                          Gap(context.fs(22, max: 34)),
+
+                          if (widget.isSkipped)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 24),
+                              child: Text(
+                                'Most players voted to skip. No points were awarded.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontWeight: FontWeight.w800, color: Colors.red.shade700, fontSize: 13),
+                              ),
+                            ),
+
+                          context.twoColumn
+                              ? _WideCard(song: widget.song, roomId: widget.roomId)
+                              : _NarrowCard(song: widget.song, roomId: widget.roomId),
+
+                          Gap(context.fs(20, max: 32)),
+
+                          if (widget.isHost)
+                            SizedBox(
+                              width: double.infinity,
+                              child: NeubrutalistButton(
+                                onPressed: widget.onNextRound,
+                                label: 'NEXT ROUND →',
+                                color: const Color(0xFFFFFF00),
+                              ),
+                            )
+                          else
+                            Text(
+                              'Waiting for host to continue...',
+                              style: TextStyle(
+                                  color: Theme.of(context).hintColor,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: context.ff(12, max: 14)),
+                            ),
+                        ],
                       ),
                     ),
-                    Gap(context.fs(22, max: 34)),
-
-                    if (widget.isSkipped)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 24),
-                        child: Text(
-                          'Most players voted to skip. No points were awarded.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontWeight: FontWeight.w700, color: Colors.red.shade700, fontSize: 13),
-                        ),
-                      ),
-
-                    // ── Main card — stacked on narrow, side-by-side on wide ──
-                    context.twoColumn
-                        ? _WideCard(song: widget.song, roomId: widget.roomId)
-                        : _NarrowCard(song: widget.song, roomId: widget.roomId),
-
-                    Gap(context.fs(20, max: 32)),
-
-                    // ── Next round / waiting ─────────────────────────────
-                    if (widget.isHost)
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: widget.onNextRound,
-                          icon: Icon(Icons.skip_next_rounded,
-                              size: context.ff(18, max: 22)),
-                          label: Text('Next Round',
-                              style: TextStyle(fontSize: context.ff(14, max: 17))),
-                          style: FilledButton.styleFrom(
-                            padding: EdgeInsets.symmetric(
-                                vertical: context.fs(12, max: 18)),
-                          ),
-                        ),
-                      )
-                    else
-                      Text(
-                        'Waiting for host to continue...',
-                        style: TextStyle(
-                            color: Theme.of(context).hintColor,
-                            fontSize: context.ff(12, max: 14)),
-                      ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -140,7 +141,39 @@ class _RoundRevealWidgetState extends State<RoundRevealWidget>
   }
 }
 
-// ── Narrow layout (mobile/tablet) — stacked ──────────────────────────────────
+class _TimerBar extends StatefulWidget {
+  final int duration;
+  const _TimerBar({required this.duration});
+  @override
+  State<_TimerBar> createState() => _TimerBarState();
+}
+
+class _TimerBarState extends State<_TimerBar> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: Duration(seconds: widget.duration));
+    _ctrl.forward();
+  }
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) => LinearProgressIndicator(
+        value: 1.0 - _ctrl.value,
+        minHeight: 6,
+        backgroundColor: Colors.transparent,
+        color: const Color(0xFFFFFF00),
+      ),
+    );
+  }
+}
 
 class _NarrowCard extends StatelessWidget {
   final Song song;
@@ -149,19 +182,22 @@ class _NarrowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _AlbumArt(song: song, size: context.fs(110, max: 160)),
-        Gap(context.fs(16, max: 24)),
-        _SongInfo(song: song),
-        Gap(context.fs(20, max: 30)),
-        _CorrectGuessers(roomId: roomId),
-      ],
+    return NeubrutalistContainer(
+      color: Colors.white,
+      padding: const EdgeInsets.all(20),
+      shadowOffset: 8,
+      child: Column(
+        children: [
+          _AlbumArt(song: song, size: context.fs(110, max: 160)),
+          Gap(context.fs(16, max: 24)),
+          _SongInfo(song: song),
+          Gap(context.fs(20, max: 30)),
+          _CorrectGuessers(roomId: roomId),
+        ],
+      ),
     );
   }
 }
-
-// ── Wide layout (desktop) — album art left, info right ───────────────────────
 
 class _WideCard extends StatelessWidget {
   final Song song;
@@ -170,27 +206,30 @@ class _WideCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _AlbumArt(song: song, size: context.fs(140, max: 220)),
-        SizedBox(width: context.fs(24, max: 40)),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SongInfo(song: song, textAlign: TextAlign.left),
-              Gap(context.fs(20, max: 30)),
-              _CorrectGuessers(roomId: roomId),
-            ],
+    return NeubrutalistContainer(
+      color: Colors.white,
+      padding: const EdgeInsets.all(32),
+      shadowOffset: 12,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _AlbumArt(song: song, size: context.fs(140, max: 220)),
+          SizedBox(width: context.fs(24, max: 40)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SongInfo(song: song, textAlign: TextAlign.left),
+                Gap(context.fs(20, max: 30)),
+                _CorrectGuessers(roomId: roomId),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
-
-// ── Album art ────────────────────────────────────────────────────────────────
 
 class _AlbumArt extends StatelessWidget {
   final Song song;
@@ -221,8 +260,6 @@ class _AlbumArt extends StatelessWidget {
     );
   }
 }
-
-// ── Song title + artist + tags ────────────────────────────────────────────────
 
 class _SongInfo extends StatelessWidget {
   final Song song;
@@ -270,16 +307,12 @@ class _SongInfo extends StatelessWidget {
           children: [
             _Tag(label: '${song.year}'),
             _Tag(label: song.genre),
-            _Tag(label: song.decade),
-            _Tag(label: song.difficultyLabel),
           ],
         ),
       ],
     );
   }
 }
-
-// ── Tag chip ──────────────────────────────────────────────────────────────────
 
 class _Tag extends StatelessWidget {
   final String label;
@@ -303,8 +336,6 @@ class _Tag extends StatelessWidget {
     );
   }
 }
-
-// ── Correct guessers ──────────────────────────────────────────────────────────
 
 class _CorrectGuessers extends StatelessWidget {
   final String roomId;

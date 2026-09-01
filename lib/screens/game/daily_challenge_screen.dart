@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:confetti/confetti.dart';
 import '../../models/song.dart';
@@ -28,6 +29,7 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
   final _audioService = SongAudioService();
   final _scoring = ScoringService();
   final _guessCtrl = TextEditingController();
+  final _focusNode = FocusNode(); // 🎯 Keep focus on input
   late ConfettiController _confettiCtrl;
 
   DailyChallengeState _state = DailyChallengeState.selecting;
@@ -48,9 +50,12 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
   Timer? _roundTimer;
   Timer? _sequenceTimer;
   Timer? _revealTimer;
+  Timer? _stageTimer; // 🆕 Timer for sub-stage countdown
 
   // New state variables for the advanced flow
   int _countdownValue = 0;
+  int _stageTotalSeconds = 0; // 🆕 Total duration of current sub-stage
+  int _stageRemainingSeconds = 0; // 🆕 Remaining time for current sub-stage
   String _announcementText = '';
   bool _showCountdown = false;
   bool _replayEnabled = false;
@@ -68,7 +73,7 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
       });
     }
 
-    if (widget.initialVibe != null && ['Bollywood', 'English', 'International'].contains(widget.initialVibe)) {
+    if (widget.initialVibe != null && ['Bollywood', 'Punjabi', 'English', 'International'].contains(widget.initialVibe)) {
       _selectedVibe = widget.initialVibe;
       _loadChallenge();
     }
@@ -115,16 +120,18 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
   void dispose() {
     _audioService.dispose();
     _guessCtrl.dispose();
+    _focusNode.dispose();
     _sequenceTimer?.cancel();
     _revealTimer?.cancel();
     _roundTimer?.cancel();
+    _stageTimer?.cancel(); // 🆕 Added
     _confettiCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _loadChallenge() async {
     if (_selectedVibe == null) return;
-    setState(() => _state = DailyChallengeState.loading);
+    if (mounted) setState(() => _state = DailyChallengeState.loading);
 
     final user = ref.read(currentUserProvider);
     if (user == null) return;
@@ -151,14 +158,16 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
     final attempt = await service.getAttempt(user.uid, _selectedVibe!);
     if (attempt != null && attempt.completed) {
       final challenge = await service.getOrCreateChallenge(_selectedVibe!);
-      setState(() {
-        _songs = challenge.songs;
-        _totalScore = attempt.score;
-        _totalTries = attempt.totalTries;
-        _totalTimeMs = attempt.totalTimeMs;
-        _correctCount = attempt.correctCount;
-        _state = DailyChallengeState.finished;
-      });
+      if (mounted) {
+        setState(() {
+          _songs = challenge.songs;
+          _totalScore = attempt.score;
+          _totalTries = attempt.totalTries;
+          _totalTimeMs = attempt.totalTimeMs;
+          _correctCount = attempt.correctCount;
+          _state = DailyChallengeState.finished;
+        });
+      }
       return;
     }
 
@@ -191,6 +200,8 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
     _correctInRound = false;
     _currentRoundSeconds = 0;
     _countdownValue = 0;
+    _stageTotalSeconds = 0;
+    _stageRemainingSeconds = 0;
     _showCountdown = false;
     _replayEnabled = false;
     _announcementText = '';
@@ -199,8 +210,35 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
     _runGameSequence();
   }
 
+  void _startStageTimer(int seconds) {
+    _stageTimer?.cancel();
+    if (!mounted) return;
+    
+    setState(() {
+      _stageTotalSeconds = seconds;
+      _stageRemainingSeconds = seconds;
+    });
+
+    _stageTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || _correctInRound) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_stageRemainingSeconds > 0) {
+          _stageRemainingSeconds--;
+        } else {
+          timer.cancel();
+        }
+      });
+    });
+  }
+
   Future<void> _doCountdown(int from, {String msg = ''}) async {
     if (!mounted || _correctInRound) return;
+    
+    _startStageTimer(from);
+    
     setState(() {
       _showCountdown = true;
       _announcementText = msg;
@@ -221,65 +259,76 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
 
     // 1. Initial Countdown
     await _doCountdown(3, msg: 'Get ready...');
-    if (_correctInRound) return;
+    if (!mounted || _correctInRound) return;
     
     // 2. Play 2s clip & start total time timer
     _roundStart = DateTime.now();
     _startRoundTimer();
     _stageSeconds = 2;
+    // For the clip itself, we don't necessarily show a timer bar unless we want to.
+    // Let's say the timer bar shows the "answer window".
     await _loadAndPlayClip(2);
+    if (!mounted) return;
     
     // 3. 10s Window (7s Replay, 3s Next Clip Countdown)
     await _handleClipWindow(duration: 2, nextSeconds: 3, windowSeconds: 7);
-    if (_correctInRound) return;
+    if (!mounted || _correctInRound) return;
 
     // 4. 3s Clip
     _stageSeconds = 3;
     await _loadAndPlayClip(3);
+    if (!mounted) return;
     await _handleClipWindow(duration: 3, nextSeconds: 5, windowSeconds: 7);
-    if (_correctInRound) return;
+    if (!mounted || _correctInRound) return;
 
     // 5. 5s Clip
     _stageSeconds = 5;
     await _loadAndPlayClip(5);
+    if (!mounted) return;
+    
     // 10s Replay window for 5s stage
-    setState(() => _replayEnabled = true);
+    _startStageTimer(13); // 10s replay + 3s countdown
+    if (mounted) setState(() => _replayEnabled = true);
     for (int i = 0; i < 10; i++) {
        await Future.delayed(const Duration(seconds: 1));
-       if (_correctInRound) return;
+       if (!mounted || _correctInRound) return;
     }
-    setState(() => _replayEnabled = false);
+    if (mounted) setState(() => _replayEnabled = false);
     await _doCountdown(3, msg: 'Playing 8 sec clip in');
-    if (_correctInRound) return;
+    if (!mounted || _correctInRound) return;
 
     // 6. 8s Clip
     _stageSeconds = 8;
     await _loadAndPlayClip(8);
+    if (!mounted) return;
     
     // 7. 15s Replay Window
-    setState(() => _replayEnabled = true);
+    _startStageTimer(18); // 15s replay + 3s countdown
+    if (mounted) setState(() => _replayEnabled = true);
     for (int i = 0; i < 15; i++) {
        await Future.delayed(const Duration(seconds: 1));
-       if (_correctInRound) return;
+       if (!mounted || _correctInRound) return;
     }
-    setState(() => _replayEnabled = false);
+    if (mounted) setState(() => _replayEnabled = false);
 
     // 8. Reveal
     await _doCountdown(3, msg: 'Song reveal in');
-    if (_correctInRound) return;
+    if (!mounted || _correctInRound) return;
     _revealSong();
   }
 
   Future<void> _handleClipWindow({required int duration, required int nextSeconds, required int windowSeconds}) async {
     if (!mounted || _correctInRound) return;
     
+    _startStageTimer(windowSeconds + 3); // Window (7s) + Countdown (3s)
+
     // Enable replay for windowSeconds (e.g. 7s)
-    setState(() => _replayEnabled = true);
+    if (mounted) setState(() => _replayEnabled = true);
     for (int i = 0; i < windowSeconds; i++) {
        await Future.delayed(const Duration(seconds: 1));
-       if (_correctInRound) return;
+       if (!mounted || _correctInRound) return;
     }
-    setState(() => _replayEnabled = false);
+    if (mounted) setState(() => _replayEnabled = false);
     
     // Last 3s countdown
     await _doCountdown(3, msg: 'Playing $nextSeconds sec clip in');
@@ -299,16 +348,25 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
   Future<void> _loadAndPlayClip(int seconds) async {
     if (_songs.isEmpty || _correctInRound) return;
     final song = _songs[_currentIndex];
-    setState(() => _playingAudio = true);
+    if (mounted) setState(() => _playingAudio = true);
+    // Explicitly stop any previous audio before loading next
+    await _audioService.stop(); 
     await _audioService.loadSong(song.audioUrl, silenceOffset: song.silenceOffset);
     await _audioService.playClip(seconds);
+    
+    // 🎵 Wait for the actual clip duration so visualizer stays active
+    await Future.delayed(Duration(seconds: seconds));
+    
     if (mounted) setState(() => _playingAudio = false);
   }
 
   void _submitGuess() {
     if (_state != DailyChallengeState.playing || _correctInRound) return;
     final guess = _guessCtrl.text.trim();
-    if (guess.isEmpty) return;
+    if (guess.isEmpty) {
+      _focusNode.requestFocus();
+      return;
+    }
 
     _totalTries++;
     final song = _songs[_currentIndex];
@@ -338,35 +396,45 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
       _revealSong();
     } else {
       _guessCtrl.clear();
+      // Use a small delay to ensure the keyboard stays open on some devices
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (mounted) _focusNode.requestFocus();
+      });
     }
   }
 
   Future<void> _revealSong() async {
     _sequenceTimer?.cancel();
     _roundTimer?.cancel();
-    setState(() {
-      _state = DailyChallengeState.revealing;
-      _showCountdown = false;
-      _replayEnabled = false;
-    });
-    
-    await _audioService.setVolume(0.5);
-    _audioService.playClip(30);
-
-    // Wait 10s total on reveal screen
-    // Last 3s show countdown for next song
-    await Future.delayed(const Duration(seconds: 7));
-    if (mounted && _currentIndex < _songs.length - 1) {
-      await _doCountdown(3, msg: 'Get ready for next song in');
-    } else {
-      await Future.delayed(const Duration(seconds: 3));
+    if (mounted) {
+      setState(() {
+        _state = DailyChallengeState.revealing;
+        _showCountdown = false;
+        _replayEnabled = false;
+      });
     }
     
-    _nextRound();
+    await _audioService.setVolume(0.5);
+    await _audioService.playClip(30);
+
+    // Wait 15s total on reveal screen or until "Next" clicked
+    // We use a Completer to allow either the timer or the button to finish the wait
+    _revealTimer = Timer(const Duration(seconds: 12), () {
+      if (mounted && _currentIndex < _songs.length - 1) {
+        _doCountdown(3, msg: 'Get ready for next song in');
+      }
+    });
+
+    _sequenceTimer = Timer(const Duration(seconds: 15), () {
+      if (mounted && _state == DailyChallengeState.revealing) {
+        _nextRound();
+      }
+    });
   }
 
   void _nextRound() {
     _revealTimer?.cancel();
+    _sequenceTimer?.cancel();
     _audioService.stopClip();
     _audioService.setVolume(1.0);
 
@@ -376,13 +444,15 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
         _state = DailyChallengeState.playing;
         _startRound();
       });
+      // Ensure focus is requested on next round start
+      WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
     } else {
       _finishChallenge();
     }
   }
 
   Future<void> _finishChallenge() async {
-    setState(() => _state = DailyChallengeState.finished);
+    if (mounted) setState(() => _state = DailyChallengeState.finished);
     final user = ref.read(currentUserProvider);
     if (user == null) return;
 
@@ -449,6 +519,7 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
         children: [
           PageShell(
             showHeader: true,
+            scrollable: _state != DailyChallengeState.playing, // 🚫 DISABLE SCROLL WHILE PLAYING
             child: Column(
               children: [
                 // Compact Header Row
@@ -479,17 +550,22 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
                   ],
                 ),
                 const Gap(16),
-                _buildBody(),
+                if (_state == DailyChallengeState.playing)
+                   Expanded(child: _buildPlaying())
+                else
+                   _buildBody(),
               ],
             ),
           ),
           Align(
             alignment: Alignment.topCenter,
-            child: ConfettiWidget(
-              confettiController: _confettiCtrl,
-              blastDirectionality: BlastDirectionality.explosive,
-              shouldLoop: false,
-              colors: const [Colors.green, Colors.blue, Colors.pink, Colors.orange, Colors.purple],
+            child: RepaintBoundary( // 🚀 Performance: Isolate confetti animation
+              child: ConfettiWidget(
+                confettiController: _confettiCtrl,
+                blastDirectionality: BlastDirectionality.explosive,
+                shouldLoop: false,
+                colors: const [Colors.green, Colors.blue, Colors.pink, Colors.orange, Colors.purple],
+              ),
             ),
           ),
         ],
@@ -515,22 +591,27 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
   Widget _buildSelection() {
     return Column(
       children: [
-        Text('Daily Challenges', style: TextStyle(fontFamily: 'Bricolage Grotesque', fontSize: context.ff(24, max: 32), fontWeight: FontWeight.w900, color: Theme.of(context).textTheme.displayLarge?.color), textAlign: TextAlign.center),
+        Text('Daily Challenges', style: GoogleFonts.bricolageGrotesque(fontSize: context.ff(24, max: 48), fontWeight: FontWeight.w900, color: Theme.of(context).textTheme.displayLarge?.color), textAlign: TextAlign.center),
         const Gap(8),
-        Text('Bollywood • English • International', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).primaryColor)),
+        Text('Bollywood • Punjabi • English • International', style: TextStyle(fontWeight: FontWeight.w800, fontSize: context.ff(14, max: 20), color: Theme.of(context).primaryColor)),
         const Gap(4),
-        Text('One attempt per day for each category. Aim for the Top 20!', style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).hintColor)),
-        const Gap(24),
+        Text('One attempt per day for each category. Aim for the Top 20!', style: TextStyle(fontWeight: FontWeight.w700, fontSize: context.ff(12, max: 16), color: Theme.of(context).hintColor)),
+        Gap(context.fs(24, max: 48)),
         _VibeSelectCard(
           label: 'Bollywood', icon: '🇮🇳', color: const Color(0xFFFFFF00), textColor: Colors.black,
           onTap: () { setState(() => _selectedVibe = 'Bollywood'); _loadChallenge(); },
         ),
-        const Gap(16),
+        Gap(context.fs(12, max: 24)),
+        _VibeSelectCard(
+          label: 'Punjabi', icon: '🌾', color: const Color(0xFFFFA500), textColor: Colors.black,
+          onTap: () { setState(() => _selectedVibe = 'Punjabi'); _loadChallenge(); },
+        ),
+        Gap(context.fs(12, max: 24)),
         _VibeSelectCard(
           label: 'English', icon: '🇺🇸', color: const Color(0xFF00FF00), textColor: Colors.black,
           onTap: () { setState(() => _selectedVibe = 'English'); _loadChallenge(); },
         ),
-        const Gap(16),
+        Gap(context.fs(12, max: 24)),
         _VibeSelectCard(
           label: 'International', icon: '🌎', color: const Color(0xFF4D4DFF), textColor: Colors.white,
           onTap: () { setState(() => _selectedVibe = 'International'); _loadChallenge(); },
@@ -541,61 +622,106 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
 
   Widget _buildPlaying() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _HeaderProgress(currentIndex: _currentIndex, vibe: _selectedVibe!, score: _totalScore, tries: _totalTries, seconds: _currentRoundSeconds),
-        const Gap(24),
-        NeubrutalistContainer(
-          padding: const EdgeInsets.all(32),
-          useEntryAnimation: true,
-          child: Column(
-            children: [
-              if (_showCountdown)
-                Column(
-                  children: [
-                    Text(_announcementText, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                    const Gap(8),
-                    Text('$_countdownValue', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 64, color: Color(0xFF0001BB)))
-                        .animate(key: ValueKey(_countdownValue)).scale(begin: const Offset(0.5, 0.5), curve: Curves.elasticOut),
-                  ],
-                )
-              else ...[
-                const Icon(Icons.music_note, size: 64, color: Color(0xFF0001BB)).animate(onPlay: (controller) => controller.repeat()).shimmer(duration: const Duration(milliseconds: 1200), color: Colors.white24).shake(hz: 2, curve: Curves.easeInOut),
-                const Gap(24),
-                NeubrutalistButton(
-                  label: _playingAudio ? 'PLAYING...' : 'REPLAY ${_stageSeconds}s CLIP',
-                  color: const Color(0xFF0001BB),
-                  textColor: Colors.white,
-                  onPressed: (_playingAudio || !_replayEnabled) ? null : () => _loadAndPlayClip(_stageSeconds),
+        const SizedBox(height: 8),
+        // ── Timer Bar ──────────────────────────────────────────
+        RepaintBoundary(
+          child: Container(
+            height: 12,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: Colors.black, width: 2),
+            ),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: (_stageTotalSeconds > 0) ? (_stageRemainingSeconds / _stageTotalSeconds).clamp(0.0, 1.0) : 0,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFF00),
+                  borderRadius: BorderRadius.circular(1),
                 ),
-                const Gap(12),
-                Text('Stage: ${_stageSeconds}s', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).hintColor)),
-              ],
-            ],
+              ),
+            ),
           ),
         ),
-        const Gap(24),
-        NeubrutalistContainer(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _guessCtrl, 
-                  onSubmitted: (_) => _submitGuess(), 
-                  autofocus: true, 
-                  style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).textTheme.bodyLarge?.color),
-                  decoration: InputDecoration(
-                    hintText: 'Type song title...', 
-                    hintStyle: TextStyle(color: Theme.of(context).hintColor),
-                    border: InputBorder.none, 
-                    enabledBorder: InputBorder.none, 
-                    focusedBorder: InputBorder.none
-                  )
-                )
+        
+        Expanded(
+          child: Container(
+            width: double.infinity,
+            alignment: Alignment.center,
+            child: SingleChildScrollView(
+              physics: const NeverScrollableScrollPhysics(),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (_showCountdown)
+                    Column(
+                      children: [
+                        Text(_announcementText, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.black)),
+                        const SizedBox(height: 12),
+                        Text('$_countdownValue', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 80, color: Color(0xFF0001BB)))
+                            .animate(key: ValueKey(_countdownValue)).scale(begin: const Offset(0.5, 0.5), curve: Curves.elasticOut),
+                      ],
+                    )
+                  else ...[
+                    // 🎹 Frequency Visualizer
+                    RepaintBoundary(child: _MusicVisualizer(playing: _playingAudio)),
+                    
+                    const SizedBox(height: 32),
+                    NeubrutalistButton(
+                      label: _playingAudio ? 'PLAYING...' : 'REPLAY ${_stageSeconds}s CLIP',
+                      color: const Color(0xFF0001BB),
+                      textColor: Colors.white,
+                      onPressed: (_playingAudio || !_replayEnabled) ? null : () => _loadAndPlayClip(_stageSeconds),
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Current Stage: ${_stageSeconds}s', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Colors.black54)),
+                  ],
+                ],
               ),
-              NeubrutalistButton(label: 'SUBMIT', color: const Color(0xFF00FF00), onPressed: _submitGuess),
-            ],
+            ),
+          ),
+        ),
+
+        // ── Fixed Bottom Guess Input ────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: NeubrutalistContainer(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _guessCtrl, 
+                    focusNode: _focusNode, 
+                    onSubmitted: (_) => _submitGuess(), 
+                    autofocus: true, 
+                    textInputAction: TextInputAction.send,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+                    decoration: const InputDecoration(
+                      hintText: 'Catch the song title...', 
+                      border: InputBorder.none, 
+                      enabledBorder: InputBorder.none, 
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 4),
+                    )
+                  )
+                ),
+                const SizedBox(width: 12),
+                GestureDetector(
+                  onTap: _submitGuess,
+                  child: NeubrutalistContainer(
+                    padding: const EdgeInsets.all(12),
+                    color: const Color(0xFF00FF00),
+                    shadowOffset: 2,
+                    child: const Icon(Icons.send, color: Colors.white, size: 24),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -604,6 +730,8 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
 
   Widget _buildRevealing() {
     final song = _songs[_currentIndex];
+    final isLast = _currentIndex >= _songs.length - 1;
+    
     return Column(
       children: [
         _HeaderProgress(currentIndex: _currentIndex, vibe: _selectedVibe!, score: _totalScore, tries: _totalTries, seconds: 0),
@@ -642,6 +770,17 @@ class _DailyChallengeScreenState extends ConsumerState<DailyChallengeScreen> {
             ],
           ),
         ),
+        const Gap(24),
+        SizedBox(
+          width: 280,
+          child: NeubrutalistButton(
+            label: isLast ? 'VIEW FINAL RESULTS' : 'PLAY NEXT SONG →',
+            color: const Color(0xFFFFFF00),
+            textColor: Colors.black,
+            onPressed: _nextRound,
+          ),
+        ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.1),
+        const Gap(40),
       ],
     );
   }
@@ -790,7 +929,7 @@ class _VibeSelectCardState extends State<_VibeSelectCard> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          transform: _hovering ? (Matrix4.identity()..scale(1.02)) : Matrix4.identity(),
+          transform: _hovering ? Matrix4.diagonal3Values(1.02, 1.02, 1.0) : Matrix4.identity(),
           child: NeubrutalistContainer(color: widget.color, padding: const EdgeInsets.all(24), child: Row(children: [Text(widget.icon, style: const TextStyle(fontSize: 32)), const SizedBox(width: 24), Text(widget.label, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: widget.textColor ?? Colors.black)), const Spacer(), Icon(Icons.arrow_forward_ios, color: widget.textColor ?? Colors.black)])),
         ),
       ),
@@ -842,5 +981,89 @@ class _ResultStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(children: [Text(value, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.black)), Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.black54))]);
+  }
+}
+
+class _MusicVisualizer extends StatelessWidget {
+  final bool playing;
+  const _MusicVisualizer({required this.playing});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _VisualizerBar(height: 40, color: Colors.blue, delay: 0, playing: playing),
+        _VisualizerBar(height: 70, color: Colors.green, delay: 1, playing: playing),
+        _VisualizerBar(height: 100, color: Colors.green, delay: 2, playing: playing),
+        _VisualizerBar(height: 130, color: Colors.yellow, delay: 3, playing: playing),
+        _VisualizerBar(height: 90, color: Colors.orange, delay: 4, playing: playing),
+        _VisualizerBar(height: 60, color: Colors.red, delay: 5, playing: playing),
+        _VisualizerBar(height: 110, color: Colors.purple, delay: 6, playing: playing),
+      ],
+    );
+  }
+}
+
+class _VisualizerBar extends StatefulWidget {
+  final double height;
+  final Color color;
+  final int delay;
+  final bool playing;
+
+  const _VisualizerBar({required this.height, required this.color, required this.delay, required this.playing});
+
+  @override
+  State<_VisualizerBar> createState() => _VisualizerBarState();
+}
+
+class _VisualizerBarState extends State<_VisualizerBar> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: Duration(milliseconds: 400 + (widget.delay * 100)));
+    _anim = Tween<double>(begin: 0.1, end: 1.0).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    if (widget.playing) _ctrl.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(_VisualizerBar old) {
+    super.didUpdateWidget(old);
+    if (widget.playing) {
+      _ctrl.repeat(reverse: true);
+    } else {
+      _ctrl.stop();
+      _ctrl.animateTo(0.1);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (context, child) {
+        return Container(
+          width: 14,
+          height: widget.height * _anim.value,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            color: widget.color,
+            borderRadius: BorderRadius.circular(2),
+            border: Border.all(color: Colors.black, width: 2),
+            boxShadow: const [BoxShadow(color: Colors.black, offset: Offset(2, 2))],
+          ),
+        );
+      },
+    );
   }
 }

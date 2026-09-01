@@ -14,6 +14,8 @@ class ClipPlayerWidget extends StatefulWidget {
   final bool isHost;
   final Future<void> Function(int seconds) onReveal;
   final VoidCallback onEndRound;
+  final int totalPlayers; // 🆕 New field
+  final int correctPlayersCount; // 🆕 New field
 
   const ClipPlayerWidget({
     super.key,
@@ -23,6 +25,8 @@ class ClipPlayerWidget extends StatefulWidget {
     required this.isHost,
     required this.onReveal,
     required this.onEndRound,
+    required this.totalPlayers,
+    required this.correctPlayersCount,
   });
 
   @override
@@ -33,7 +37,6 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
     with SingleTickerProviderStateMixin {
   Song?  _song;
   bool   _playing      = false;
-  bool   _loadingAudio = false;
   Timer? _stopTimer;
 
   bool _replayUsed          = false;
@@ -60,6 +63,10 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
 
   Future<void> _triggerArenaCountdown({required bool isNewRound}) async {
     if (!mounted) return;
+    
+    // 🚀 Performance: Start loading song early while countdown is running
+    _loadSong(autoPlay: false);
+
     setState(() {
       _isTransitioning = true;
       _transitionMsg = isNewRound ? 'Get ready for Round ${widget.room.currentRound}...' : 'Playing ${widget.room.revealedSeconds}s clip in...';
@@ -74,7 +81,8 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
 
     if (mounted) {
       setState(() => _isTransitioning = false);
-      _loadSong(autoPlay: true);
+      // Play immediately since we started loading earlier
+      unawaited(_playClip(isAutoPlay: true));
     }
   }
 
@@ -82,8 +90,14 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
     _countdownTicker = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       
-      // Don't tick down while in a transition countdown
-      if (_isTransitioning) return;
+      // ⏸️ Don't tick down if game is paused OR transitioning
+      if (_isTransitioning || widget.room.isPaused) {
+        // If paused, we also need to ensure audio is stopped/paused
+        if (widget.room.isPaused && _playing) {
+          _pauseAudio();
+        }
+        return;
+      }
 
       setState(() {
         if (_remainingSeconds > 0) {
@@ -93,12 +107,19 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
     });
   }
 
+  void _pauseAudio() {
+    _stopTimer?.cancel();
+    widget.audioService.pause();
+    if (mounted) setState(() => _playing = false);
+  }
+
   @override
   void didUpdateWidget(ClipPlayerWidget old) {
     super.didUpdateWidget(old);
     
     final roundChanged = old.room.currentRound != widget.room.currentRound;
     final stageChanged = old.room.revealedSeconds != widget.room.revealedSeconds;
+    final pauseChanged = old.room.isPaused != widget.room.isPaused;
 
     if (roundChanged || stageChanged) {
       setState(() {
@@ -107,6 +128,10 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
         _replayUsed = false;
       });
       _triggerArenaCountdown(isNewRound: roundChanged);
+    }
+
+    if (pauseChanged && widget.room.isPaused) {
+      _pauseAudio();
     }
   }
 
@@ -120,16 +145,13 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
   Future<void> _loadSong({bool autoPlay = false}) async {
     final songData = widget.room.currentSong;
     if (songData == null) return;
-    setState(() => _loadingAudio = true);
     try {
       final song = Song.fromMap(songData);
       if (!mounted) return;
       setState(() => _song = song);
       await widget.onSongLoad(song.id, song.audioUrl, song.silenceOffset);
       if (autoPlay && mounted) await _playClip(isAutoPlay: true);
-    } finally {
-      if (mounted) setState(() => _loadingAudio = false);
-    }
+    } catch (_) {}
   }
 
   Future<void> _playClip({bool isAutoPlay = false}) async {
@@ -169,7 +191,12 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
       children: [
         // ── Time Remaining Header ──────────────────────────────────────
         Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: EdgeInsets.fromLTRB(
+            context.fs(8, max: 16),
+            context.fs(4, max: 8), 
+            context.fs(8, max: 16),
+            context.fs(4, max: 8), 
+          ),
           child: NeubrutalistContainer(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -187,10 +214,10 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
                 ),
                 const SizedBox(height: 8),
                 Container(
-                  height: 24,
+                  height: 16,
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withOpacity(0.1) : const Color(0xFFEEEEEE),
+                    color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.1) : const Color(0xFFEEEEEE),
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(color: Theme.of(context).dividerColor, width: 2),
                   ),
@@ -211,8 +238,8 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
         ),
 
         // ── Main Game Canvas ──────────────────────────────────────────
-        SizedBox(
-          height: 300, // Bound the height
+        ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: context.fs(180, max: 300)),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: NeubrutalistContainer(
@@ -221,66 +248,93 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
               child: Stack(
                 children: [
                   Positioned.fill(child: const GridBackground()),
-                  Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Animated Music Bars
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            _MusicBar(height: 60, color: Theme.of(context).dividerColor, delay: 0, playing: _playing),
-                            _MusicBar(height: 80, color: const Color(0xFF00FF00), delay: 1, playing: _playing),
-                            _MusicBar(height: 100, color: const Color(0xFF00FF00), delay: 2, playing: _playing),
-                            _MusicBar(height: 120, color: const Color(0xFF00FF00), delay: 3, playing: _playing),
-                            _MusicBar(height: 90, color: const Color(0xFFFFFF00), delay: 4, playing: _playing),
-                            _MusicBar(height: 70, color: Theme.of(context).dividerColor, delay: 5, playing: _playing),
-                            _MusicBar(height: 110, color: const Color(0xFF4D4DFF), delay: 6, playing: _playing),
-                          ],
-                        ),
-                        const SizedBox(height: 32),
-                        if (_isTransitioning)
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _transitionMsg,
-                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '$_internalCountdown',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900, 
-                                  fontSize: 48, 
-                                  color: Theme.of(context).primaryColor
-                                ),
-                              ).animate(key: ValueKey(_internalCountdown))
-                               .scale(begin: const Offset(0.5, 0.5), curve: Curves.elasticOut),
-                            ],
-                          )
-                        else
-                          NeubrutalistContainer(
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            child: Text(
-                              'GUESS THE TRACK!',
-                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 24, color: Theme.of(context).textTheme.bodyLarge?.color),
-                            ),
+                  
+                  // 🎯 Match Progress Indicator
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: NeubrutalistContainer(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      color: const Color(0xFF00FF00).withOpacity(0.9),
+                      shadowOffset: 0,
+                      borderWidth: 1.5,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.person_pin_circle, size: 12, color: Colors.black),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${widget.correctPlayersCount}/${widget.totalPlayers} CAUGHT IT',
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 9, color: Colors.black),
                           ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                  // Replay Button Overlay
+
+                  Center(
+                    child: SingleChildScrollView(
+                      physics: const NeverScrollableScrollPhysics(),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Animated Music Bars
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              _MusicBar(height: context.fs(30, max: 60), color: Theme.of(context).dividerColor, delay: 0, playing: _playing),
+                              _MusicBar(height: context.fs(50, max: 80), color: const Color(0xFF00FF00), delay: 1, playing: _playing),
+                              _MusicBar(height: context.fs(70, max: 100), color: const Color(0xFF00FF00), delay: 2, playing: _playing),
+                              _MusicBar(height: context.fs(90, max: 120), color: const Color(0xFF00FF00), delay: 3, playing: _playing),
+                              _MusicBar(height: context.fs(60, max: 90), color: const Color(0xFFFFFF00), delay: 4, playing: _playing),
+                              _MusicBar(height: context.fs(40, max: 70), color: Theme.of(context).dividerColor, delay: 5, playing: _playing),
+                              _MusicBar(height: context.fs(80, max: 110), color: const Color(0xFF4D4DFF), delay: 6, playing: _playing),
+                            ],
+                          ),
+                          Gap(context.fs(16, max: 32)),
+                          if (_isTransitioning)
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _transitionMsg,
+                                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '$_internalCountdown',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900, 
+                                    fontSize: context.ff(28, max: 48), 
+                                    color: Theme.of(context).primaryColor
+                                  ),
+                                ).animate(key: ValueKey(_internalCountdown))
+                                 .scale(begin: const Offset(0.5, 0.5), curve: Curves.elasticOut),
+                              ],
+                            )
+                          else
+                            NeubrutalistContainer(
+                              padding: EdgeInsets.symmetric(horizontal: context.fs(12, max: 24), vertical: context.fs(6, max: 12)),
+                              child: Text(
+                                'GUESS THE TRACK!',
+                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(14, max: 24), color: Theme.of(context).textTheme.bodyLarge?.color),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
                   Positioned(
-                    bottom: 20,
-                    right: 20,
+                    bottom: 12,
+                    right: 12,
                     child: Opacity(
                       opacity: (_replayUsed || _isTransitioning) ? 0.5 : 1.0,
                       child: IconButton.filled(
                         onPressed: _replayUsed || _playing || _isTransitioning ? null : () => _playClip(),
-                        icon: const Icon(Icons.replay),
+                        icon: const Icon(Icons.replay, size: 20),
                         style: IconButton.styleFrom(
+                          padding: const EdgeInsets.all(8),
                           backgroundColor: const Color(0xFFFFFF00),
                           foregroundColor: Colors.black,
                           side: BorderSide(color: Theme.of(context).dividerColor, width: 2),
@@ -293,7 +347,6 @@ class _ClipPlayerWidgetState extends State<ClipPlayerWidget>
             ),
           ),
         ),
-        const SizedBox(height: 16),
       ],
     );
   }

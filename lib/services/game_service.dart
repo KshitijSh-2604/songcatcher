@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/room.dart';
 import '../models/song.dart';
 import 'scoring_service.dart';
@@ -22,8 +23,10 @@ class GameService {
     List<String> selectedVibes = const ['Bollywood'],
     List<int> selectedClipStages = const [2, 3, 5],
     int yearFrom = 1950,
-    int yearTo = 2020,
+    int yearTo = 2030,
     bool isPublic = false,
+    bool isPartyMode = false,
+    bool forceLockVisibility = false, // 🔒 New field
   }) async {
     final code = _generateCode();
     final ref = _db.collection('rooms').doc();
@@ -42,12 +45,15 @@ class GameService {
       'yearFrom': yearFrom,
       'yearTo': yearTo,
       'isPublic': isPublic,
+      'isPartyMode': isPartyMode,
+      'forceLockVisibility': forceLockVisibility,
       'createdAt': FieldValue.serverTimestamp(),
       'skipVotes': [],
     });
 
+    final cleanName = _filterName(hostName);
     await ref.collection('players').doc(hostId).set({
-      'displayName': hostName,
+      'displayName': cleanName,
       'photoUrl': photoUrl,
       'avatarConfig': avatarConfig,
       'score': 0,
@@ -66,26 +72,42 @@ class GameService {
     String? photoUrl,
     Map<String, dynamic> avatarConfig = const {},
   }) async {
-    // Search for any public room that isn't finished and isn't full
-    final snap = await _db
+    // 1. Try to find rooms that are still WAITING (best experience)
+    final waitingSnap = await _db
         .collection('rooms')
         .where('isPublic', isEqualTo: true)
-        .where('status', whereIn: ['waiting', 'playing', 'roundEnded'])
-        .limit(30)
+        .where('status', isEqualTo: 'waiting')
+        .orderBy('createdAt', descending: true)
+        .limit(10)
         .get();
 
-    for (final doc in snap.docs) {
+    // 2. Try to find rooms that already started but aren't finished
+    final activeSnap = await _db
+        .collection('rooms')
+        .where('isPublic', isEqualTo: true)
+        .where('status', whereIn: ['playing', 'roundEnded'])
+        .limit(10)
+        .get();
+
+    final allDocs = [...waitingSnap.docs, ...activeSnap.docs];
+
+    for (final doc in allDocs) {
       final data = doc.data();
       
-      // Don't "matchmake" into a room you are already the host of
-      if (data['hostId'] == userId) return doc.id;
-
-      // Check if user is already a player (to avoid duplicate entries)
+      // If I'm already in this room (e.g. refreshed page), return it immediately
       final playerDoc = await doc.reference.collection('players').doc(userId).get();
       if (playerDoc.exists) return doc.id;
 
-      // Check if room is full (max 8 players)
-      final playersSnap = await doc.reference.collection('players').limit(8).get();
+      // Skip rooms I just left (where I am still recorded as hostId but removed from players)
+      if (data['hostId'] == userId) continue;
+
+      // Check if room has space (max 8)
+      final playersSnap = await doc.reference.collection('players').get();
+      if (playersSnap.docs.isEmpty) {
+        await doc.reference.delete(); // Cleanup zombie
+        continue;
+      }
+
       if (playersSnap.docs.length < 8) {
         await _addPlayerToRoom(doc.id, userId, displayName, photoUrl, avatarConfig);
         return doc.id;
@@ -96,8 +118,9 @@ class GameService {
   }
 
   Future<void> _addPlayerToRoom(String roomId, String userId, String displayName, String? photoUrl, Map<String, dynamic> avatarConfig) async {
+    final cleanName = _filterName(displayName);
     await _db.collection('rooms').doc(roomId).collection('players').doc(userId).set({
-      'displayName': displayName,
+      'displayName': cleanName,
       'photoUrl': photoUrl,
       'avatarConfig': avatarConfig,
       'score': 0,
@@ -116,6 +139,7 @@ class GameService {
     List<String>? selectedVibes,
     List<int>? selectedClipStages,
     bool? isPublic,
+    bool? isPartyMode,
   }) async {
     final updates = <String, dynamic>{};
     if (yearRangeStart != null) updates['yearFrom'] = yearRangeStart;
@@ -124,6 +148,7 @@ class GameService {
     if (selectedVibes != null) updates['selectedVibes'] = selectedVibes;
     if (selectedClipStages != null) updates['selectedClipStages'] = selectedClipStages;
     if (isPublic != null) updates['isPublic'] = isPublic;
+    if (isPartyMode != null) updates['isPartyMode'] = isPartyMode;
     
     if (updates.isNotEmpty) {
       await _db.collection('rooms').doc(roomId).update(updates);
@@ -162,33 +187,65 @@ class GameService {
     return roomId;
   }
 
-  Future<void> leaveRoom(String roomId, String userId) async {
+  Future<void> joinRoomById({
+    required String roomId,
+    required String userId,
+    required String displayName,
+    String? photoUrl,
+    Map<String, dynamic> avatarConfig = const {},
+  }) async {
     final roomDoc = await _db.collection('rooms').doc(roomId).get();
-    if (!roomDoc.exists) return;
-    
+    if (!roomDoc.exists) throw Exception('Room not found.');
+
     final data = roomDoc.data()!;
-    final hostId = data['hostId'] as String;
+    final banned = List<String>.from(data['bannedPlayers'] ?? []);
+    if (banned.contains(userId)) {
+      throw Exception('You have been kicked from this lobby.');
+    }
 
-    // Delete the player record
-    await _db.collection('rooms').doc(roomId).collection('players').doc(userId).delete();
+    await _addPlayerToRoom(roomId, userId, displayName, photoUrl, avatarConfig);
+  }
 
-    // Check remaining players
-    final playersSnap = await _db.collection('rooms').doc(roomId).collection('players').orderBy('joinedAt').get();
+  Future<void> leaveRoom(String roomId, String userId) async {
+    final roomRef = _db.collection('rooms').doc(roomId);
     
-    if (playersSnap.docs.isEmpty) {
-      // 🧨 Destroy room if no one left
-      await _db.collection('rooms').doc(roomId).delete();
-      // Also clean up subcollections (Firestore delete is shallow)
-      final guesses = await _db.collection('rooms').doc(roomId).collection('guesses').get();
-      final batch = _db.batch();
-      for (var d in guesses.docs) {
-        batch.delete(d.reference);
+    try {
+      // 1. Remove the player first
+      await roomRef.collection('players').doc(userId).delete();
+
+      // 2. Check remaining players to decide on room destruction or handover
+      final playersSnap = await roomRef.collection('players').get();
+      final remainingPlayers = playersSnap.docs;
+
+      if (remainingPlayers.isEmpty) {
+        // 🧨 Cleanup guesses and other subcollections BEFORE deleting the room
+        // This ensures the host still has permission to delete these records
+        final guesses = await roomRef.collection('guesses').get();
+        if (guesses.docs.isNotEmpty) {
+          final batch = _db.batch();
+          for (var d in guesses.docs) {
+            batch.delete(d.reference);
+          }
+          await batch.commit();
+        }
+
+        // Now safe to delete the room
+        await roomRef.delete();
+      } else {
+        // 👑 Check if the person who left was the host
+        final roomDoc = await roomRef.get();
+        if (roomDoc.exists) {
+          final data = roomDoc.data()!;
+          if (data['hostId'] == userId) {
+            // Hand over to the person who has been in the room longest (first in list)
+            final nextHostId = remainingPlayers.first.id;
+            await roomRef.update({'hostId': nextHostId});
+          }
+        }
       }
-      await batch.commit();
-    } else if (hostId == userId) {
-      // 👑 Hand over host to next person who joined
-      final nextHostId = playersSnap.docs.first.id;
-      await _db.collection('rooms').doc(roomId).update({'hostId': nextHostId});
+    } catch (e) {
+      debugPrint('Silent error during leaveRoom: $e');
+      // We don't rethrow here to avoid blocking the UI navigation
     }
   }
 
@@ -250,7 +307,31 @@ class GameService {
       'roundStartedAt': FieldValue.serverTimestamp(),
       'skipVotes': [],
       'isSkipped': false,
+      'isPaused': false,
     });
+
+    // 📣 Chat Announcement (Centered in the history widget later)
+    await _sendAnnouncement(roomId, ' ROUND 1 IS STARTING ');
+  }
+
+  Future<void> _sendAnnouncement(String roomId, String text) async {
+    await _db.collection('rooms').doc(roomId).collection('guesses').add({
+      'userId': 'system',
+      'displayName': 'Arena',
+      'guess': text,
+      'correct': false,
+      'isAnnouncement': true, // 📣 New field
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> togglePause(String roomId, bool paused) async {
+    await _db.collection('rooms').doc(roomId).update({'isPaused': paused});
+    if (paused) {
+      await _sendAnnouncement(roomId, 'Game has been PAUSED by host.');
+    } else {
+      await _sendAnnouncement(roomId, 'Game has been RESUMED.');
+    }
   }
 
   Future<void> skipRound(String roomId) async {
@@ -291,7 +372,7 @@ class GameService {
     return 30;
   }
 
-  Future<bool> submitGuess({
+  Future<GuessResult> submitGuess({
     required String roomId,
     required String userId,
     required String displayName,
@@ -301,24 +382,25 @@ class GameService {
     final room = Room.fromMap(roomDoc.id, roomDoc.data()!);
 
     final songData = room.currentSong;
-    if (songData == null) return false;
+    if (songData == null) return GuessResult.wrong;
 
     final playerDoc = await _db.collection('rooms').doc(roomId).collection('players').doc(userId).get();
-    if (playerDoc.data()?['hasGuessedCorrectly'] == true) return false;
+    if (playerDoc.data()?['hasGuessedCorrectly'] == true) return GuessResult.correct;
 
     final title = songData['title'] as String? ?? '';
-    final correct = _scoring.isCorrectGuess(guess: guess, title: title, artist: '');
+    final result = _scoring.checkGuess(guess: guess, title: title);
+    final isCorrect = result == GuessResult.correct;
 
     await _db.collection('rooms').doc(roomId).collection('guesses').add({
       'userId': userId,
       'displayName': displayName,
-      'guess': correct ? '' : guess,
-      'correct': correct,
+      'guess': isCorrect ? '' : guess,
+      'correct': isCorrect,
       'roundNumber': room.currentRound,
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    if (correct) {
+    if (isCorrect) {
       final correctSnap = await _db
           .collection('rooms')
           .doc(roomId)
@@ -339,15 +421,20 @@ class GameService {
         songDifficulty: songData['difficulty'] as String? ?? 'medium',
       );
 
+      final difficulty = songData['difficulty'] as String? ?? 'medium';
+      final bool isHard = difficulty == 'hard' || difficulty == 'hardcore';
+
       await _db.collection('rooms').doc(roomId).collection('players').doc(userId).update({
         'score': FieldValue.increment(points),
         'correctGuesses': FieldValue.increment(1),
         'hasGuessedCorrectly': true,
         'lastPointsEarned': points,
+        'totalElapsedMs': FieldValue.increment(elapsedMs),
+        'hardCorrectGuesses': FieldValue.increment(isHard ? 1 : 0),
       });
     }
 
-    return correct;
+    return result;
   }
 
   Future<void> revealMoreClip(String roomId, int seconds) async {
@@ -415,26 +502,26 @@ class GameService {
       'roundStartedAt': FieldValue.serverTimestamp(),
       'skipVotes': [],
       'isSkipped': false,
+      'isPaused': false,
     });
+
+    // 📣 Chat Announcement
+    await _sendAnnouncement(roomId, ' ROUND ${room.currentRound + 1} IS STARTING ');
   }
 
   Future<void> resetRoomForRematch(String roomId, String newHostId) async {
-    final roomDoc = await _db.collection('rooms').doc(roomId).get();
+    final roomRef = _db.collection('rooms').doc(roomId);
+    final roomDoc = await roomRef.get();
+    
+    if (!roomDoc.exists) {
+      throw 'This Arena no longer exists.';
+    }
+    
     final data = roomDoc.data()!;
     final stages = List<int>.from(data['selectedClipStages'] ?? [2, 3, 5]);
 
-    await _db.collection('rooms').doc(roomId).update({
-      'status': 'waiting',
-      'hostId': newHostId,
-      'currentRound': 0,
-      'currentSong': null,
-      'revealedSeconds': stages.first,
-      'roundStartedAt': null,
-      'skipVotes': [],
-      'isSkipped': false,
-    });
-
-    final playersSnap = await _db.collection('rooms').doc(roomId).collection('players').get();
+    // 1. Reset all players first (Batch)
+    final playersSnap = await roomRef.collection('players').get();
     final batch = _db.batch();
     for (final doc in playersSnap.docs) {
       batch.update(doc.reference, {
@@ -444,11 +531,71 @@ class GameService {
         'lastPointsEarned': 0,
       });
     }
+
+    // 2. Reset the room and assign new host
+    batch.update(roomRef, {
+      'status': 'waiting',
+      'hostId': newHostId,
+      'currentRound': 0,
+      'currentSong': null,
+      'revealedSeconds': stages.isNotEmpty ? stages.first : 3,
+      'roundStartedAt': null,
+      'skipVotes': [],
+      'isSkipped': false,
+      'isPaused': false,
+      'startCountdown': 0,
+    });
+
     await batch.commit();
   }
 
   Future<void> updateStartCountdown(String roomId, int value) async {
     await _db.collection('rooms').doc(roomId).update({'startCountdown': value});
+  }
+
+  /// 🧨 DEV ONLY: Purge all existing rooms and their subcollections
+  Future<void> nukeAllRooms() async {
+    final rooms = await _db.collection('rooms').get();
+    for (final room in rooms.docs) {
+      // Cleanup subcollections
+      final players = await room.reference.collection('players').get();
+      final guesses = await room.reference.collection('guesses').get();
+      
+      final batch = _db.batch();
+      for (var p in players.docs) batch.delete(p.reference);
+      for (var g in guesses.docs) batch.delete(g.reference);
+      batch.delete(room.reference);
+      await batch.commit();
+    }
+  }
+
+  Future<void> updatePlayerDisplayName(String roomId, String userId, String newName) async {
+    final cleanName = _filterName(newName);
+    await _db.collection('rooms').doc(roomId).collection('players').doc(userId).update({
+      'displayName': cleanName,
+    });
+  }
+
+  Future<void> updateReadyStatus(String roomId, String userId, bool isReady) async {
+    await _db.collection('rooms').doc(roomId).collection('players').doc(userId).update({
+      'isReady': isReady,
+    });
+  }
+
+  Future<void> updateTypingStatus(String roomId, String userId, bool isTyping) async {
+    await _db.collection('rooms').doc(roomId).collection('players').doc(userId).update({
+      'isTyping': isTyping,
+    });
+  }
+
+  String _filterName(String name) {
+    final explicitWords = ['nigga', 'cock', 'faggot', 'nigger', 'rape', 'porn'];
+    String filtered = name;
+    for (var word in explicitWords) {
+      final regExp = RegExp(word, caseSensitive: false);
+      filtered = filtered.replaceAll(regExp, '*' * word.length);
+    }
+    return filtered;
   }
 
   String _generateCode() {

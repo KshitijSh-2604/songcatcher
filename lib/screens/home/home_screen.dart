@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/game_service.dart';
 import '../../utils/responsive.dart';
 import '../../providers/user_provider.dart';
+import '../../providers/room_provider.dart';
 import '../../models/app_user.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -25,13 +27,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String _selectedGenre = 'Bollywood';
 
   @override
+  void initState() {
+    super.initState();
+    // 🚀 Reset activity status to Home
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = ref.read(currentUserProvider);
+      if (user != null) {
+        ref.read(userServiceProvider).updateActivity(user.uid, 'Home');
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _codeCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _createRoom({bool isPublic = false}) async {
-    final userProfile = ref.read(userProfileProvider).valueOrNull;
+  Future<void> _createRoom({bool isPublic = false, bool isPartyMode = false, bool forceLockVisibility = false}) async {
+    // Ensure profile is loaded (especially for guests who just arrived)
+    final userProfile = await ref.read(userProfileProvider.future);
     if (userProfile == null) {
       setState(() => _error = 'Profile not loaded. Try again.');
       return;
@@ -49,28 +64,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         avatarConfig: userProfile.avatarConfig,
         selectedVibes: [_selectedGenre],
         isPublic: isPublic,
+        isPartyMode: isPartyMode,
+        forceLockVisibility: forceLockVisibility,
       );
       if (mounted) context.go('/lobby/$roomId');
     } catch (e) {
-      setState(() => _error = 'Failed to create room.');
+      setState(() => _error = 'Failed to create room: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _quickJoin() async {
-    final userProfile = ref.read(userProfileProvider).valueOrNull;
-    if (userProfile == null) {
-      setState(() => _error = 'Profile not loaded.');
-      return;
-    }
-
+  Future<void> _quickJoin({bool forcePublic = false}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
 
     try {
+      // Ensure profile is loaded
+      final userProfile = await ref.read(userProfileProvider.future);
+      if (userProfile == null) {
+        setState(() => _error = 'Profile not loaded.');
+        return;
+      }
+
       final publicRoomId = await _gameService.findPublicRoom(
         userId: userProfile.uid,
         displayName: userProfile.displayName,
@@ -82,6 +100,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(publicRoomId).get();
         final status = roomDoc.data()?['status'] ?? 'waiting';
         
+        // Record the room ID for persistence
+        ref.read(currentRoomIdProvider.notifier).state = publicRoomId;
+
         if (mounted) {
           if (status == 'playing' || status == 'roundEnded') {
             context.go('/game/$publicRoomId');
@@ -90,36 +111,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           }
         }
       } else {
+        // No public matches found -> Auto-create a public room
         if (mounted) {
-          setState(() => _loading = false);
-          _showNoMatchesDialog();
+          await _createRoom(isPublic: true, forceLockVisibility: forcePublic);
         }
       }
     } catch (e) {
-      setState(() => _error = 'Matchmaking failed. Try again.');
+      debugPrint('QuickJoin Error: $e');
+      setState(() {
+        if (e.toString().contains('index')) {
+          _error = 'Database indexing in progress. Please wait 1-2 minutes.';
+        } else {
+          _error = 'Matchmaking failed: $e';
+        }
+      });
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _showNoMatchesDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('No Public Matches', style: TextStyle(fontWeight: FontWeight.w900)),
-        content: const Text('There are no open public matches right now. Would you like to start one and wait for players?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CANCEL')),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _createRoom(isPublic: true);
-            },
-            child: const Text('START PUBLIC MATCH'),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed _showNoMatchesDialog as it's now automated via _createRoom(isPublic: true)
 
   Future<void> _joinRoom() async {
     final code = _codeCtrl.text.trim().toUpperCase();
@@ -154,8 +164,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 🚀 Performance: Only watch registered status and auth object
     final user = ref.watch(currentUserProvider);
     final isGuest = user?.isAnonymous ?? true;
+
+    // Use select to avoid rebuilds on coin or stat changes
+    final profileData = ref.watch(userProfileProvider.select((p) => {
+      'uid': p.value?.uid,
+      'displayName': p.value?.displayName,
+      'photoUrl': p.value?.photoUrl,
+      'avatarConfig': p.value?.avatarConfig,
+      'isEmailVerified': p.value?.isEmailVerified,
+      'isPhoneVerified': p.value?.isPhoneVerified,
+    }));
 
     return PageShell(
       showHeader: true,
@@ -166,24 +187,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           // ── Hero Section ──────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: EdgeInsets.all(context.fs(16, max: 32)),
             child: NeubrutalistContainer(
               color: const Color(0xFFFFFF00),
               borderWidth: 4,
               shadowOffset: 8,
-              padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 40),
+              padding: EdgeInsets.symmetric(
+                vertical: context.fs(40, max: 100), 
+                horizontal: context.fs(20, max: 60),
+              ),
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
                   Positioned(
-                    top: -30,
-                    left: -20,
-                    child: Icon(Icons.music_note, color: Colors.black.withOpacity(0.1), size: 60),
+                    top: -context.fs(20, max: 40),
+                    left: -context.fs(10, max: 30),
+                    child: Icon(Icons.music_note, color: Colors.black.withOpacity(0.1), size: context.fs(40, max: 80)),
                   ),
                   Positioned(
-                    bottom: -20,
-                    right: -10,
-                    child: Icon(Icons.graphic_eq, color: Colors.black.withOpacity(0.1), size: 60),
+                    bottom: -context.fs(15, max: 30),
+                    right: -context.fs(5, max: 20),
+                    child: Icon(Icons.graphic_eq, color: Colors.black.withOpacity(0.1), size: context.fs(40, max: 80)),
                   ),
                   Center(
                     child: Column(
@@ -192,35 +216,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     Text(
                       'SongCatcher.io',
                       style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                        fontSize: context.ff(40, max: 70),
+                        fontSize: context.ff(32, max: 80),
                         color: Colors.black, // Still black in yellow hero box
                       ),
                       textAlign: TextAlign.center,
                     ).animate().fadeIn(duration: const Duration(milliseconds: 600)).scale(begin: const Offset(0.9, 0.9)),
                     const SizedBox(height: 12),
-                    const Text(
+                    Text(
                       'Catch the beat. Guess the track. Dominate the Arena.',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Colors.black),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800, 
+                        fontSize: context.ff(14, max: 22), 
+                        color: Colors.black,
+                      ),
                       textAlign: TextAlign.center,
                     ).animate().fadeIn(delay: const Duration(milliseconds: 300)),
-                        const SizedBox(height: 40),
+                        Gap(context.fs(24, max: 48)),
                         if (_loading)
-                          const Column(
+                          Column(
                             children: [
-                              CircularProgressIndicator(color: Colors.black),
-                              SizedBox(height: 12),
+                              const CircularProgressIndicator(color: Colors.black),
+                              const SizedBox(height: 12),
                               Text('Finding a match...', 
-                                  style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black)),
+                                  style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black, fontSize: context.ff(12, max: 16))),
                             ],
                           )
                         else
                           SizedBox(
-                            width: 240,
+                            width: context.fw(200, max: 320),
                             child: NeubrutalistButton(
                               label: 'QUICK MATCH',
                               color: const Color(0xFF4D4DFF),
                               textColor: Colors.white,
-                              onPressed: _quickJoin,
+                              onPressed: () => _quickJoin(forcePublic: true),
                             ),
                           ).animate().fadeIn(delay: const Duration(milliseconds: 500)).slideY(begin: 0.2),
                       ],
@@ -247,7 +275,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
           // ── Match Types ───────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: EdgeInsets.symmetric(horizontal: context.fs(16, max: 32)),
             child: IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -258,10 +286,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       label: 'Public Arena',
                       sublabel: 'Join any open match instantly.',
                       iconColor: const Color(0xFF4D4DFF),
-                      onTap: _quickJoin,
+                      onTap: () => _quickJoin(),
                     ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideX(begin: -0.1),
                   ),
-                  const SizedBox(width: 24),
+                  Gap(context.fs(12, max: 24), horizontal: true),
                   Expanded(
                     child: _MatchTypeCard(
                       icon: Icons.vpn_key_outlined,
@@ -271,31 +299,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       onTap: () => _createRoom(isPublic: false),
                     ).animate().fadeIn(delay: const Duration(milliseconds: 700)).slideX(begin: 0.1),
                   ),
+                  Gap(context.fs(12, max: 24), horizontal: true),
+                  Expanded(
+                    child: _MatchTypeCard(
+                      icon: Icons.celebration_outlined,
+                      label: 'Party Mode',
+                      sublabel: 'Songs play only on host device.',
+                      iconColor: const Color(0xFFFF00FF),
+                      isLocked: !ref.watch(isDevProvider),
+                      onTap: () {
+                        if (context.isMobile) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Party Mode hosting is only supported on Desktop/Web.')),
+                          );
+                          return;
+                        }
+                        _createRoom(isPublic: false, isPartyMode: true);
+                      },
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 800)).slideX(begin: 0.2),
+                  ),
                 ],
               ),
             ),
           ),
 
-          const SizedBox(height: 24),
+          Gap(context.fs(16, max: 32)),
 
           // ── Join with Code ───────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: EdgeInsets.symmetric(horizontal: context.fs(16, max: 32)),
             child: NeubrutalistContainer(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(context.fs(12, max: 20)),
               child: Row(
                 children: [
-                  Icon(Icons.meeting_room, color: Theme.of(context).textTheme.bodyLarge?.color, size: 24),
-                  const SizedBox(width: 16),
-                  Text('Enter Code:', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Theme.of(context).textTheme.bodyLarge?.color)),
-                  const SizedBox(width: 16),
+                  Icon(Icons.meeting_room, color: Theme.of(context).textTheme.bodyLarge?.color, size: context.fs(20, max: 32)),
+                  Gap(context.fs(10, max: 20), horizontal: true),
+                  Text('Enter Code:', style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(14, max: 18), color: Theme.of(context).textTheme.bodyLarge?.color)),
+                  Gap(context.fs(10, max: 20), horizontal: true),
                   Expanded(
                     child: TextField(
                       controller: _codeCtrl,
                       textAlign: TextAlign.center,
                       textCapitalization: TextCapitalization.characters,
                       maxLength: 6,
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 2, color: Theme.of(context).textTheme.bodyLarge?.color),
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(16, max: 22), letterSpacing: 2, color: Theme.of(context).textTheme.bodyLarge?.color),
                       decoration: InputDecoration(
                         hintText: 'X X X X X X',
                         hintStyle: TextStyle(color: Theme.of(context).hintColor),
@@ -307,7 +354,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  Gap(context.fs(10, max: 20), horizontal: true),
                   NeubrutalistButton(
                     label: 'JOIN',
                     color: const Color(0xFFFFFF00),
@@ -318,51 +365,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
 
-          const SizedBox(height: 32),
+          Gap(context.fs(24, max: 48)),
 
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            padding: EdgeInsets.symmetric(horizontal: context.fs(16, max: 32)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Select Your Vibe', style: TextStyle(fontFamily: 'Bricolage Grotesque', fontSize: 24, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 20),
+                Text('Select Your Vibe', style: GoogleFonts.bricolageGrotesque(fontSize: context.ff(20, max: 32), fontWeight: FontWeight.w900)),
+                Gap(context.fs(12, max: 24)),
                 _VibeGrid(selected: _selectedGenre, onSelect: (g) => setState(() => _selectedGenre = g)),
               ],
             ),
           ),
 
-          const SizedBox(height: 32),
+          Gap(context.fs(24, max: 48)),
 
           // ── Daily Challenge & Leaderboard ─────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+            padding: EdgeInsets.fromLTRB(context.fs(16, max: 32), 0, context.fs(16, max: 32), context.fs(32, max: 60)),
             child: IntrinsicHeight(
               child: AdaptiveRow(
                 collapseBelow: 900,
-                spacing: 24,
+                spacing: context.fs(16, max: 32),
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Daily Challenge Card
                   NeubrutalistContainer(
                     color: Colors.white,
-                    padding: const EdgeInsets.all(32),
+                    padding: EdgeInsets.all(context.fs(24, max: 48)),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.wb_sunny_outlined, size: 48, color: Colors.black),
-                        const SizedBox(height: 16),
-                        const Text(
+                        Icon(Icons.wb_sunny_outlined, size: context.fs(40, max: 64), color: Colors.black),
+                        const Gap(16),
+                        Text(
                           'Daily Challenge',
-                          style: TextStyle(fontFamily: 'Bricolage Grotesque', fontSize: 28, fontWeight: FontWeight.w900, color: Colors.black),
+                          style: GoogleFonts.bricolageGrotesque(fontSize: context.ff(24, max: 32), fontWeight: FontWeight.w900, color: Colors.black),
                         ),
                         Text(
                           'Vibe: $_selectedGenre',
-                          style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0001BB)),
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: context.ff(14, max: 18), color: const Color(0xFF0001BB)),
                         ),
-                        const SizedBox(height: 24),
+                        const Gap(24),
                         SizedBox(
-                          width: 220,
+                          width: context.fw(180, max: 240),
                           child: NeubrutalistButton(
                             label: isGuest ? 'LOG IN TO UNLOCK' : 'START CHALLENGE',
                             color: const Color(0xFFFFFF00),
@@ -373,8 +420,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 return;
                               }
 
-                              final profile = ref.read(userProfileProvider).valueOrNull;
-                              final isVerified = profile?.isEmailVerified == true || profile?.isPhoneVerified == true;
+                              final isVerified = profileData['isEmailVerified'] == true || profileData['isPhoneVerified'] == true;
 
                               if (!isVerified) {
                                 showDialog(
@@ -429,24 +475,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   // Leaderboard Card
                   NeubrutalistContainer(
                     color: Theme.of(context).cardColor,
-                    padding: const EdgeInsets.all(24),
+                    padding: EdgeInsets.all(context.fs(16, max: 32)),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.leaderboard_outlined, size: 24),
-                            const SizedBox(width: 12),
-                            const Text('Daily Top Catchers', style: TextStyle(fontFamily: 'Bricolage Grotesque', fontWeight: FontWeight.w900, fontSize: 22)),
+                            Icon(Icons.leaderboard_outlined, size: context.fs(20, max: 32)),
+                            const Gap(12, horizontal: true),
+                            Text('Daily Top Catchers', style: GoogleFonts.bricolageGrotesque(fontWeight: FontWeight.w900, fontSize: context.ff(18, max: 24))),
                             const Spacer(),
                             IconButton(
-                              icon: const Icon(Icons.open_in_new, size: 18),
+                              icon: Icon(Icons.open_in_new, size: context.fs(16, max: 24)),
                               onPressed: () => context.go('/leaderboard'),
                               tooltip: 'View Full Leaderboard',
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
+                        Gap(context.fs(12, max: 20)),
                         _DailyLeaderboardPreview(vibe: _selectedGenre),
                       ],
                     ),
@@ -455,7 +501,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 60),
+          Gap(context.fs(40, max: 80)),
         ],
       ),
     );
@@ -468,15 +514,15 @@ class _DailyLeaderboardPreview extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isCoreVibe = ['Bollywood', 'English', 'International'].contains(vibe);
+    final isCoreVibe = ['Bollywood', 'Punjabi', 'English', 'International'].contains(vibe);
     if (!isCoreVibe) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.info_outline, size: 32, color: Colors.black26),
-            const SizedBox(height: 12),
-            Text('Leaderboard available for\ncore vibes only.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).hintColor)),
+            Icon(Icons.info_outline, size: context.fs(24, max: 48), color: Colors.black26),
+            const Gap(12),
+            Text('Leaderboard available for\ncore vibes only.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, fontSize: context.ff(12, max: 16), color: Theme.of(context).hintColor)),
           ],
         ),
       );
@@ -485,7 +531,7 @@ class _DailyLeaderboardPreview extends ConsumerWidget {
     final leaderboard = ref.watch(dailyLeaderboardProvider(vibe));
     return leaderboard.when(
       data: (attempts) {
-        if (attempts.isEmpty) return Center(child: Text('No entries today.', style: TextStyle(color: Theme.of(context).hintColor)));
+        if (attempts.isEmpty) return Center(child: Text('No entries today.', style: TextStyle(color: Theme.of(context).hintColor, fontSize: context.ff(12, max: 16))));
         final displayAttempts = attempts.length > 6 ? attempts.take(6).toList() : attempts;
         
         return Column(
@@ -496,18 +542,18 @@ class _DailyLeaderboardPreview extends ConsumerWidget {
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: NeubrutalistContainer(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: EdgeInsets.symmetric(horizontal: context.fs(10, max: 16), vertical: context.fs(6, max: 12)),
                 shadowOffset: 2,
                 child: Row(
                   children: [
-                    Text('#${i + 1}', style: const TextStyle(fontWeight: FontWeight.w900)),
-                    const SizedBox(width: 12),
+                    Text('#${i + 1}', style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(12, max: 16))),
+                    Gap(context.fs(8, max: 16), horizontal: true),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(a.displayName, style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color), overflow: TextOverflow.ellipsis),
-                          Text('${a.correctCount}/5 caught · ${a.totalTries} tries', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Theme.of(context).hintColor)),
+                          Text(a.displayName, style: TextStyle(fontWeight: FontWeight.w800, fontSize: context.ff(13, max: 18), color: Theme.of(context).textTheme.bodyLarge?.color), overflow: TextOverflow.ellipsis),
+                          Text('${a.correctCount}/5 caught · ${a.totalTries} tries', style: TextStyle(fontSize: context.ff(9, max: 13), fontWeight: FontWeight.w700, color: Theme.of(context).hintColor)),
                         ],
                       ),
                     ),
@@ -515,6 +561,7 @@ class _DailyLeaderboardPreview extends ConsumerWidget {
                       '${a.score} pts',
                       style: TextStyle(
                         fontWeight: FontWeight.w900, 
+                        fontSize: context.ff(12, max: 16),
                         color: Theme.of(context).primaryColor,
                       ),
                     ),
@@ -536,7 +583,7 @@ class _DailyLeaderboardPreview extends ConsumerWidget {
                   ? 'Leaderboard requires an index. Check console for link.' 
                   : 'Error loading leaderboard.',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.red),
+              style: TextStyle(fontSize: context.ff(10, max: 14), fontWeight: FontWeight.w700, color: Colors.red),
             ),
           ),
         );
@@ -551,8 +598,9 @@ class _MatchTypeCard extends StatefulWidget {
   final String sublabel;
   final Color iconColor;
   final VoidCallback onTap;
+  final bool isLocked;
 
-  const _MatchTypeCard({required this.icon, required this.label, required this.sublabel, required this.iconColor, required this.onTap});
+  const _MatchTypeCard({required this.icon, required this.label, required this.sublabel, required this.iconColor, required this.onTap, this.isLocked = false});
 
   @override
   State<_MatchTypeCard> createState() => _MatchTypeCardState();
@@ -563,25 +611,29 @@ class _MatchTypeCardState extends State<_MatchTypeCard> {
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
+      onEnter: (_) => setState(() => _hovering = !widget.isLocked),
       onExit: (_) => setState(() => _hovering = false),
-      cursor: SystemMouseCursors.click,
+      cursor: widget.isLocked ? SystemMouseCursors.basic : SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: widget.onTap,
+        onTap: widget.isLocked ? null : widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          transform: _hovering ? (Matrix4.identity()..scale(1.02)) : Matrix4.identity(),
-          child: NeubrutalistContainer(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(widget.icon, color: widget.iconColor, size: 48),
-                const SizedBox(height: 16),
-                Text(widget.label, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: Theme.of(context).textTheme.bodyLarge?.color)),
-                const SizedBox(height: 8),
-                Text(widget.sublabel, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Theme.of(context).hintColor), textAlign: TextAlign.center),
-              ],
+          transform: _hovering ? Matrix4.diagonal3Values(1.02, 1.02, 1.0) : Matrix4.identity(),
+          child: Opacity(
+            opacity: widget.isLocked ? 0.6 : 1.0,
+            child: NeubrutalistContainer(
+              padding: EdgeInsets.all(context.fs(16, max: 32)),
+              color: widget.isLocked ? Colors.grey.shade200 : null,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(widget.isLocked ? Icons.lock_outline : widget.icon, color: widget.isLocked ? Colors.grey : widget.iconColor, size: context.fs(32, max: 64)),
+                  Gap(context.fs(12, max: 20)),
+                  Text(widget.label, style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(16, max: 24), color: widget.isLocked ? Colors.grey : Theme.of(context).textTheme.bodyLarge?.color)),
+                  Gap(context.fs(4, max: 8)),
+                  Text(widget.isLocked ? 'COMING SOON' : widget.sublabel, style: TextStyle(fontWeight: FontWeight.w600, fontSize: context.ff(11, max: 14), color: Theme.of(context).hintColor), textAlign: TextAlign.center),
+                ],
+              ),
             ),
           ),
         ),
@@ -597,7 +649,7 @@ class _VibeGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final vibes = ['Bollywood', 'English', 'International'];
+    final vibes = ['Bollywood', 'Punjabi', 'English', 'International'];
     return Row(
       children: vibes.map((v) {
         final isSelected = selected == v;

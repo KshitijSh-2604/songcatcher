@@ -22,13 +22,25 @@
   <meta name="twitter:description" content="Guess the song faster than your friends!">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png">
-  <link rel="apple-touch-icon"      href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="songcatcher.io_favicon.png">
+  <link rel="apple-touch-icon"      href="songcatcher.io_favicon.png">
 
   <!-- PWA manifest -->
   <link rel="manifest" href="manifest.json">
 
+  <base href="$FLUTTER_BASE_HREF">
+
   <title>SongCatcher</title>
+
+  <meta name="google-signin-client_id" content="286054429599-vojcqf0uv5rao0r4gsitcmcou9i5ft1g.apps.googleusercontent.com">
+
+  <!-- Google Fonts: Bricolage Grotesque -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">
+
+  <!-- Google reCAPTCHA for Firebase Phone Auth -->
+  <script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>
 
   <style>
     /* Splash screen while Flutter loads */
@@ -49,6 +61,7 @@
       gap: 16px;
       color: rgba(255, 255, 255, 0.5);
       font-size: 14px;
+      font-family: 'Bricolage Grotesque', sans-serif;
     }
 
     #loading .logo {
@@ -77,13 +90,34 @@
 </head>
 
 <body>
+<!-- Container for Firebase Phone Auth reCAPTCHA -->
+<div id="recaptcha-container" style="position: fixed; bottom: 0; right: 0;"></div>
+
 <div id="loading">
   <div class="logo">🎵</div>
   <div class="spinner"></div>
   <span>Loading SongCatcher…</span>
 </div>
 
-<!-- Flutter bootstrap -->
-<script src="flutter_bootstrap.js" async></script>
+  <!-- Flutter bootstrap -->
+  <script src="flutter_bootstrap.js" async></script>
+
+  <script type="text/javascript">
+    // Single Page Apps for GitHub Pages
+    // https://github.com/rafrex/spa-github-pages
+    // This script takes the current url and converts the path and query
+    // string into just a query string, and then redirects the browser
+    // to the custom 404.html page that contains the logic to reverse the process.
+    (function(l) {
+      if (l.search[1] === '/' ) {
+        var decoded = l.search.slice(1).split('&').map(function(s) {
+          return s.replace(/~and~/g, '&')
+        }).join('?');
+        window.history.replaceState(null, null,
+            l.pathname.slice(0, -1) + decoded + l.hash
+        );
+      }
+    }(window.location));
+  </script>
 </body>
 </html>

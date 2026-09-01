@@ -23,6 +23,9 @@ class Room {
   final List<String> skipVotes;
   final bool isSkipped;
   final int startCountdown;
+  final bool isPartyMode;
+  final bool isPaused; // ⏸️ New field
+  final bool forceLockVisibility;
 
   const Room({
     required this.id,
@@ -40,11 +43,14 @@ class Room {
     this.selectedVibes = const ['Bollywood'],
     this.selectedClipStages = const [2, 3, 5],
     this.yearFrom = 1950,
-    this.yearTo = 2020,
+    this.yearTo = 2030,
     this.isPublic = false,
     this.skipVotes = const [],
     this.isSkipped = false,
     this.startCountdown = 0,
+    this.isPartyMode = false,
+    this.isPaused = false,
+    this.forceLockVisibility = false,
   });
 
   factory Room.fromMap(String id, Map<String, dynamic> d) {
@@ -67,11 +73,14 @@ class Room {
       selectedVibes: List<String>.from(d['selectedVibes'] ?? ['Bollywood']),
       selectedClipStages: List<int>.from(d['selectedClipStages'] ?? [2, 3, 5]),
       yearFrom: (d['yearFrom'] as num?)?.toInt() ?? 1950,
-      yearTo: (d['yearTo'] as num?)?.toInt() ?? 2020,
+      yearTo: (d['yearTo'] as num?)?.toInt() ?? 2030,
       isPublic: d['isPublic'] ?? false,
       skipVotes: List<String>.from(d['skipVotes'] ?? []),
       isSkipped: d['isSkipped'] ?? false,
       startCountdown: (d['startCountdown'] as num?)?.toInt() ?? 0,
+      isPartyMode: d['isPartyMode'] ?? false,
+      isPaused: d['isPaused'] ?? false,
+      forceLockVisibility: d['forceLockVisibility'] ?? false,
     );
   }
 
@@ -95,6 +104,9 @@ class Room {
     'skipVotes': skipVotes,
     'isSkipped': isSkipped,
     'startCountdown': startCountdown,
+    'isPartyMode': isPartyMode,
+    'isPaused': isPaused,
+    'forceLockVisibility': forceLockVisibility,
   };
 
   Room copyWith({
@@ -116,6 +128,9 @@ class Room {
     List<String>? skipVotes,
     bool? isSkipped,
     int? startCountdown,
+    bool? isPartyMode,
+    bool? isPaused,
+    bool? forceLockVisibility,
   }) {
     return Room(
       id:              id,
@@ -138,6 +153,9 @@ class Room {
       skipVotes:       skipVotes       ?? this.skipVotes,
       isSkipped:       isSkipped       ?? this.isSkipped,
       startCountdown:  startCountdown  ?? this.startCountdown,
+      isPartyMode:     isPartyMode     ?? this.isPartyMode,
+      isPaused:        isPaused        ?? this.isPaused,
+      forceLockVisibility: forceLockVisibility ?? this.forceLockVisibility,
     );
   }
 }

@@ -1,28 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../widgets/app_header.dart';
 import '../widgets/app_sidebar.dart';
+import '../providers/auth_provider.dart';
+import '../providers/user_provider.dart';
 
 // ── Fluid scale helpers ────────────────────────────────────────────────────
 double _lerp(double t, double min, double max) => min + (max - min) * t;
-double _t(double width) => ((width - 360) / (1400 - 360)).clamp(0.0, 1.0);
+// Extended scaling up to 2400px for "massive" desktop support
+double _t(double width) => ((width - 360) / (2400 - 360)).clamp(0.0, 1.0);
 
 extension FluidContext on BuildContext {
   double get _w => MediaQuery.sizeOf(this).width;
   double get _h => MediaQuery.sizeOf(this).height;
-  double ff(double min, {double? max}) => _lerp(_t(_w), min, max ?? min * 1.35);
-  double fs(double min, {double? max}) => _lerp(_t(_w), min, max ?? min * 2.5);
-  double fw(double min, {double? max}) => _lerp(_t(_w), min, max ?? min * 1.8);
+  
+  // Fluid font size
+  double ff(double min, {double? max}) => _lerp(_t(_w), min, max ?? min * 1.5);
+  // Fluid spacing/size
+  double fs(double min, {double? max}) => _lerp(_t(_w), min, max ?? min * 2.8);
+  // Fluid width
+  double fw(double min, {double? max}) => _lerp(_t(_w), min, max ?? min * 2.2);
+  
   double get screenWidth  => _w;
   double get screenHeight => _h;
-  double get hPad => fs(16, max: 80);
-  double get vPad => fs(12, max: 40);
+  
+  double get hPad => fs(16, max: 120);
+  double get vPad => fs(12, max: 60);
+  
   EdgeInsets get pagePadding => EdgeInsets.symmetric(horizontal: hPad, vertical: vPad);
-  double get maxContent => _w < 600 ? _w : (_w * 0.9).clamp(600, 1400);
+  
+  // Increased maxContent for larger displays
+  double get maxContent => _w < 600 ? _w : (_w * 0.85).clamp(600, 1800);
+  
   bool get isMobile  => _w < 600;
-  bool get isTablet  => _w >= 600 && _w < 1000;
-  bool get isDesktop => _w >= 1000;
-  bool get twoColumn => _w >= 900;
+  bool get isTablet  => _w >= 600 && _w < 1024;
+  bool get isDesktop => _w >= 1024;
+  bool get isLargeDesktop => _w >= 1800;
+  bool get twoColumn => _w >= 1000;
 }
 
 // ── PageShell ──────────────────────────────────────────────────────────────
@@ -101,12 +117,16 @@ class PageShell extends StatelessWidget {
   }
 }
 
+
 // ── GridBackground ───────────────────────────────────────────────────────
 class GridBackground extends StatelessWidget {
   const GridBackground({super.key});
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(painter: _GridPainter(Theme.of(context).brightness));
+    // 🚀 Performance: RepaintBoundary prevents grid redraw during other UI updates
+    return RepaintBoundary(
+      child: CustomPaint(painter: _GridPainter(Theme.of(context).brightness)),
+    );
   }
 }
 
@@ -198,6 +218,7 @@ class NeubrutalistButton extends StatefulWidget {
   final Color color;
   final Color? textColor;
   final VoidCallback? onPressed;
+  final Widget? icon;
 
   const NeubrutalistButton({
     super.key,
@@ -205,6 +226,7 @@ class NeubrutalistButton extends StatefulWidget {
     required this.color,
     this.textColor,
     this.onPressed,
+    this.icon,
   });
 
   @override
@@ -238,11 +260,22 @@ class _NeubrutalistButtonState extends State<NeubrutalistButton> {
             color: widget.color,
             shadowOffset: _isPressed ? 0 : 4,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-            child: Center(
-              child: Text(
-                widget.label,
-                style: TextStyle(color: widget.textColor ?? defaultTextColor, fontWeight: FontWeight.w900, fontSize: 14),
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (widget.icon != null) ...[
+                  widget.icon!,
+                  const SizedBox(width: 12),
+                ],
+                Flexible(
+                  child: Text(
+                    widget.label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: widget.textColor ?? defaultTextColor, fontWeight: FontWeight.w900, fontSize: 14),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

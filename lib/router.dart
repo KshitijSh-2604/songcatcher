@@ -11,6 +11,7 @@ import 'screens/game/game_screen.dart';
 import 'screens/results/results_screen.dart';
 import 'screens/home/profile_screen.dart';
 import 'screens/home/leaderboard_screen.dart';
+import 'screens/home/friends_screen.dart';
 
 import 'screens/game/daily_challenge_screen.dart';
 
@@ -61,6 +62,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/leaderboard',
         builder: (_, __) => const LeaderboardScreen(),
+      ),
+      GoRoute(
+        path: '/friends',
+        builder: (_, __) => const FriendsScreen(),
       ),
       GoRoute(
         path: '/daily',

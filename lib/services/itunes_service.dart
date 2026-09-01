@@ -34,21 +34,56 @@ class ItunesService {
     }
   }
 
-  Song? _trackToSong(Map<String, dynamic> t, {int rank = 25, String genre = 'Mixed'}) {
+  Song? _trackToSong(Map<String, dynamic> t, {int rank = 25, String genre = 'Mixed', int? yearFrom, int? yearTo}) {
     final previewUrl = t['previewUrl'] as String?;
     if (previewUrl == null) return null;
 
-    final trackId = (t['trackId'] as num?)?.toInt() ?? 0;
     final title = t['trackName'] as String? ?? '';
-    final artist = t['artistName'] as String? ?? '';
     final album = t['collectionName'] as String? ?? '';
-    final albumArt = (t['artworkUrl100'] as String? ?? '').replaceAll('100x100', '640x640');
+    final artist = t['artistName'] as String? ?? '';
+
+    // 🚫 1. Blacklist unwanted versions
+    final blacklist = [
+      'mix', 'lofi', 'slowed', 'reverbed', 'reverb', 'acoustic', 'remix', 
+      'mashup', 'tribute', 'cover', 'instrumental', 'karaoke', 'live', 
+      'version', 'edit', 're-recorded', 'remaster', 'remastered', 'hits',
+      'radio edit', 'extended mix', 'club mix', 'unplugged', 'demo', 'bollywood'
+    ];
+    
+    final searchable = '$title $album'.toLowerCase();
+    if (blacklist.any((word) => searchable.contains(word))) {
+      return null;
+    }
+
+    // 🗓️ 2. Smart Year Filtering (Handle compilations)
     final rawDate = t['releaseDate'] as String? ?? '2000-01-01';
-    final year = int.tryParse(rawDate.split('-').first) ?? 2000;
+    int year = int.tryParse(rawDate.split('-').first) ?? 2000;
+    
+    // If the album title explicitly mentions an older era (e.g., "1950s", "90s")
+    // but the release year is modern, it's likely a compilation.
+    final eraMatch = RegExp(r'(19|20)\d{2}').firstMatch(album);
+    if (eraMatch != null) {
+      final albumYear = int.tryParse(eraMatch.group(0)!);
+      if (albumYear != null && albumYear < year) {
+        year = albumYear; // Trust the era mentioned in album title over release date
+      }
+    }
+
+    // Secondary check: If searching for modern songs, skip "Classics" or "Retro" albums
+    if (yearTo != null && yearTo >= 2010) {
+       final retroKeywords = ['classic', 'retro', 'vintage', 'oldies', 'gold', 'golden', '1940', '1950', '1960', '1970', '1980', '1990'];
+       if (retroKeywords.any((k) => album.toLowerCase().contains(k))) return null;
+    }
+
+    if (yearFrom != null && year < yearFrom) return null;
+    if (yearTo != null && year > yearTo) return null;
+
+    final trackId = (t['trackId'] as num?)?.toInt() ?? 0;
+    final albumArt = (t['artworkUrl100'] as String? ?? '').replaceAll('100x100', '640x640');
     final decade = '${(year ~/ 10) * 10}s';
     
-    // Derived language/genre based on track data or query context
     final isHindi = t['primaryGenreName'] == 'Bollywood' || artist.toLowerCase().contains('arijit') || title.toLowerCase().contains('dil');
+    final isPunjabi = genre == 'Punjabi' || artist.toLowerCase().contains('sidhu') || artist.toLowerCase().contains('diljit');
 
     return Song(
       id: 'itunes_$trackId',
@@ -58,7 +93,7 @@ class ItunesService {
       audioUrl: previewUrl,
       albumArtUrl: albumArt,
       genre: genre,
-      language: isHindi ? 'Hindi' : 'English',
+      language: isHindi ? 'Hindi' : (isPunjabi ? 'Punjabi' : 'English'),
       decade: decade,
       difficulty: _getDifficulty(rank, rawDate),
       popularity: (50 - rank).clamp(0, 100),
@@ -90,15 +125,36 @@ class ItunesService {
     final queries = <String>[];
     String country = 'US';
 
+    // "Now" (2030 in UI) means current year
+    final actualYearTo = yearTo >= 2030 ? DateTime.now().year : yearTo;
+    final actualYearFrom = yearFrom >= 2030 ? DateTime.now().year : yearFrom;
+
     if (genre == 'Bollywood') {
-      queries.addAll(['bollywood hits', 'hindi film songs', 'bollywood classics']);
+      queries.addAll([
+        'bollywood hits', 'hindi film songs', 'bollywood classics', 
+        'latest hindi songs', 'arijit singh hits', 'shreya ghoshal best',
+        '90s bollywood', '2000s hindi hits'
+      ]);
       country = 'IN';
     } else if (genre == 'English') {
-      queries.addAll(['english hits', 'pop hits', 'rock essentials']);
+      queries.addAll([
+        'english hits', 'pop hits', 'rock essentials', 'top songs us', 
+        'billboard hot 100', '90s pop', '80s rock'
+      ]);
       country = 'US';
     } else if (genre == 'International') {
-      queries.addAll(['global hits', 'international top songs', 'world music hits']);
+      queries.addAll([
+        'global hits', 'international top songs', 'world music hits', 
+        'latin pop hits', 'k-pop essentials'
+      ]);
       country = 'US';
+    } else if (genre == 'Punjabi') {
+      queries.addAll([
+        'punjabi hits', 'punjabi pop', 'bhangra essentials', 
+        'sidhu moose wala best', 'diljit dosanjh hits', 'ap dhillon best',
+        'latest punjabi songs'
+      ]);
+      country = 'IN';
     } else if (genre.endsWith('s')) {
       final decade = genre.substring(0, 4);
       queries.add('popular songs $decade');
@@ -114,18 +170,27 @@ class ItunesService {
     final Set<int> seen = {};
 
     for (final query in queries) {
-      if (pool.length >= count * 4) break;
-      final tracks = await _search(query, limit: 50, country: country);
+      if (pool.length >= count * 15) break; // 🚀 Even larger pool for better variety
+      
+      // 🎲 Offset results randomly to avoid repetition across games
+      final randomOffset = _rand.nextInt(400); 
+      final tracks = await _search(query, limit: 100, offset: randomOffset, country: country);
+      
       for (var i = 0; i < tracks.length; i++) {
         final t = tracks[i];
         final id = (t['trackId'] as num?)?.toInt() ?? 0;
         if (id == 0 || seen.contains(id)) continue;
-        seen.add(id);
-
-        final song = _trackToSong(t, rank: i, genre: genre);
+        
+        final song = _trackToSong(
+          t, 
+          rank: i, 
+          genre: genre, 
+          yearFrom: actualYearFrom, 
+          yearTo: actualYearTo,
+        );
+        
         if (song == null) continue;
-        if (song.year < yearFrom || song.year > yearTo) continue;
-        if (song.difficulty == 'hardcore') continue;
+        seen.add(id);
         pool.add(song);
       }
     }
@@ -133,6 +198,7 @@ class ItunesService {
     if (pool.isEmpty) return [];
     
     pool.shuffle(_rand);
+    // Return a random selection from the pool instead of just the first 'count'
     return pool.take(count).toList();
   }
 }

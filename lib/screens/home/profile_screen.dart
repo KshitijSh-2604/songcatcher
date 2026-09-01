@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -25,7 +26,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   final _phoneCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
   bool _saving = false;
+  bool _verifyingPhone = false;
   String? _verificationId;
+  ConfirmationResult? _webConfirmationResult;
   AvatarConfig? _tempConfig;
   Timer? _authTimer;
 
@@ -41,6 +44,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       await user.reload();
+      
+      // ✅ FIX: Check if widget is still mounted before accessing ref
+      if (!mounted) return;
+
       final profile = ref.read(userProfileProvider).valueOrNull;
       
       bool needsUpdate = false;
@@ -120,7 +127,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final phone = _phoneCtrl.text.trim();
     if (phone.isEmpty) return;
 
-    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    final isMobile = defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS;
+    
+    if (!kIsWeb && !isMobile) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Phone verification is currently only supported on Android/iOS/Web.'))
@@ -142,37 +151,54 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     setState(() => _verifyingPhone = true);
     try {
-      await FirebaseAuth.instance.verifyPhoneNumber(
-        phoneNumber: phone,
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          // This can happen automatically on some Android devices
-          await FirebaseAuth.instance.currentUser?.linkWithCredential(credential);
-          await ref.read(userServiceProvider).updateUser(FirebaseAuth.instance.currentUser!.uid, {
-            'phoneNumber': phone,
-            'isPhoneVerified': true,
+      if (kIsWeb) {
+        // 🌐 Web-specific verification for linking
+        final verifier = RecaptchaVerifier(
+          container: 'recaptcha-container',
+          auth: FirebaseAuthPlatform.instance,
+        );
+        
+        final result = await FirebaseAuth.instance.currentUser?.linkWithPhoneNumber(phone, verifier);
+        if (result != null) {
+          setState(() {
+            _webConfirmationResult = result;
+            _verifyingPhone = false;
           });
-          if (mounted) {
-            setState(() => _verifyingPhone = false);
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phone verified automatically!')));
-          }
-        },
-        verificationFailed: (FirebaseAuthException e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Verification failed: ${e.message}')));
-            setState(() => _verifyingPhone = false);
-          }
-        },
-        codeSent: (String vid, int? resendToken) {
-          if (mounted) {
-            setState(() {
-              _verificationId = vid;
-              _verifyingPhone = false;
+          _showOtpDialog();
+        }
+      } else {
+        // 📱 Mobile verification
+        await FirebaseAuth.instance.verifyPhoneNumber(
+          phoneNumber: phone,
+          verificationCompleted: (PhoneAuthCredential credential) async {
+            await FirebaseAuth.instance.currentUser?.linkWithCredential(credential);
+            await ref.read(userServiceProvider).updateUser(FirebaseAuth.instance.currentUser!.uid, {
+              'phoneNumber': phone,
+              'isPhoneVerified': true,
             });
-            _showOtpDialog();
-          }
-        },
-        codeAutoRetrievalTimeout: (String vid) => _verificationId = vid,
-      );
+            if (mounted) {
+              setState(() => _verifyingPhone = false);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phone verified automatically!')));
+            }
+          },
+          verificationFailed: (FirebaseAuthException e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Verification failed: ${e.message}')));
+              setState(() => _verifyingPhone = false);
+            }
+          },
+          codeSent: (String vid, int? resendToken) {
+            if (mounted) {
+              setState(() {
+                _verificationId = vid;
+                _verifyingPhone = false;
+              });
+              _showOtpDialog();
+            }
+          },
+          codeAutoRetrievalTimeout: (String vid) => _verificationId = vid,
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -207,10 +233,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           FilledButton(
             onPressed: () async {
               final code = _otpCtrl.text.trim();
-              if (code.isEmpty || _verificationId == null) return;
+              if (code.isEmpty) return;
               try {
-                final credential = PhoneAuthProvider.credential(verificationId: _verificationId!, smsCode: code);
-                await FirebaseAuth.instance.currentUser?.linkWithCredential(credential);
+                if (kIsWeb && _webConfirmationResult != null) {
+                  await _webConfirmationResult!.confirm(code);
+                } else if (_verificationId != null) {
+                  final credential = PhoneAuthProvider.credential(verificationId: _verificationId!, smsCode: code);
+                  await FirebaseAuth.instance.currentUser?.linkWithCredential(credential);
+                } else {
+                  return;
+                }
+
                 await ref.read(userServiceProvider).updateUser(FirebaseAuth.instance.currentUser!.uid, {
                   'phoneNumber': _phoneCtrl.text.trim(),
                   'isPhoneVerified': true,
@@ -354,9 +387,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 🚀 Performance: Watching specific fields to minimize rebuilds
     final profileAsync = ref.watch(userProfileProvider);
-    final user = ref.watch(currentUserProvider);
-    final isGuest = user?.isAnonymous ?? true;
+    final isGuest = ref.watch(currentUserProvider.select((u) => u?.isAnonymous ?? true));
 
     return PageShell(
       showHeader: true,
@@ -422,8 +455,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           onTap: profile.photoUrl != null ? () => _showImagePreview(profile.photoUrl!, profile.uid) : null,
                           child: Container(
                             key: ValueKey(profile.photoUrl),
-                            width: 140,
-                            height: 140,
+                            width: context.fs(120, max: 180),
+                            height: context.fs(120, max: 180),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               shape: BoxShape.circle,
@@ -432,7 +465,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                   ? DecorationImage(image: NetworkImage(profile.photoUrl!), fit: BoxFit.cover)
                                   : null,
                             ),
-                            child: profile.photoUrl == null ? const Icon(Icons.person, size: 70, color: Colors.black26) : null,
+                            child: profile.photoUrl == null ? Icon(Icons.person, size: context.fs(60, max: 100), color: Colors.black26) : null,
                           ),
                         ),
                         Positioned(
@@ -440,8 +473,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           left: -5,
                           child: NeubrutalistContainer(
                             borderRadius: 999,
-                            padding: const EdgeInsets.all(6),
-                            child: SkribblAvatar(config: currentConfig, size: 38),
+                            padding: EdgeInsets.all(context.fs(4, max: 10)),
+                            child: SkribblAvatar(config: currentConfig, size: context.fs(32, max: 50)),
                           ),
                         ),
                         Positioned(
@@ -449,18 +482,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           right: 0,
                           child: GestureDetector(
                             onTap: _saving ? null : _pickImage,
-                            child: const NeubrutalistContainer(
+                            child: NeubrutalistContainer(
                               borderRadius: 999,
-                              color: Color(0xFF0001BB),
-                              padding: EdgeInsets.all(8),
-                              child: Icon(Icons.camera_alt, size: 18, color: Colors.white),
+                              color: const Color(0xFF0001BB),
+                              padding: EdgeInsets.all(context.fs(6, max: 12)),
+                              child: Icon(Icons.camera_alt, size: context.fs(16, max: 24), color: Colors.white),
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const Gap(32),
+                  Gap(context.fs(24, max: 48)),
                   Center(
                     child: NeubrutalistButton(
                       label: 'Randomize Avatar Look',
@@ -468,13 +501,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       onPressed: () => setState(() => _tempConfig = AvatarConfig.random()),
                     ),
                   ),
-                  const Gap(32),
+                  Gap(context.fs(24, max: 48)),
 
                   // ── Verification Section ──────────────────────────────────
-                  const Text('Verification', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                  const Gap(12),
+                  Text('Verification', style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(16, max: 22))),
+                  Gap(context.fs(10, max: 20)),
                   NeubrutalistContainer(
-                    padding: const EdgeInsets.all(16),
+                    padding: EdgeInsets.all(context.fs(12, max: 24)),
                     child: Column(
                       children: [
                         // Email Verification
@@ -487,7 +520,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           secondaryAction: profile.isEmailVerified ? null : _refreshUser,
                           secondaryIcon: profile.isEmailVerified ? null : Icons.refresh,
                         ),
-                        const Gap(12),
+                        Gap(context.fs(10, max: 20)),
                         // Phone Verification
                         _VerificationTile(
                           icon: Icons.phone_android_outlined,
@@ -501,39 +534,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ],
                     ),
                   ),
-                  const Gap(32),
+                  Gap(context.fs(24, max: 48)),
 
                   Row(
                     children: [
                       const Text('Display Name', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                       if (ref.watch(isDevProvider)) ...[
-                        const SizedBox(width: 12),
+                        const Gap(12, horizontal: true),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
                             color: const Color(0xFF0001BB),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text('DEVELOPER', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900)),
+                          child: Text('DEVELOPER', style: TextStyle(color: Colors.white, fontSize: context.ff(8, max: 12), fontWeight: FontWeight.w900)),
                         ),
                       ],
+                      const Spacer(),
+                      if (!isGuest)
+                        Text(profile.catcherId, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Colors.black26)),
                     ],
                   ),
                   const Gap(8),
                   TextField(
                     controller: _nameCtrl,
+                    style: TextStyle(fontSize: context.ff(14, max: 18), fontWeight: FontWeight.w700),
                     decoration: const InputDecoration(hintText: 'Enter name...'),
                   ),
-                  const Gap(32),
+                  Gap(context.fs(24, max: 48)),
                   NeubrutalistContainer(
-                    padding: const EdgeInsets.all(24),
+                    padding: EdgeInsets.all(context.fs(16, max: 32)),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Game Statistics', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                        const Gap(20),
-                        const Text('Hosted Arena', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-                        const Gap(12),
+                        Text('Game Statistics', style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(16, max: 22))),
+                        Gap(context.fs(16, max: 32)),
+                        Text('Hosted Arena', style: TextStyle(fontWeight: FontWeight.w800, fontSize: context.ff(12, max: 16))),
+                        Gap(context.fs(10, max: 20)),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
@@ -542,11 +579,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             _StatItem(label: 'Points', value: '${profile.arenaStats.totalPoints}'),
                           ],
                         ),
-                        const Gap(24),
+                        Gap(context.fs(20, max: 40)),
                         const Divider(thickness: 1),
-                        const Gap(16),
-                        const Text('Daily Challenge', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-                        const Gap(12),
+                        Gap(context.fs(12, max: 24)),
+                        Text('Daily Challenge', style: TextStyle(fontWeight: FontWeight.w800, fontSize: context.ff(12, max: 16))),
+                        Gap(context.fs(10, max: 20)),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
@@ -558,22 +595,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ],
                     ),
                   ),
-                  const Gap(40),
+                  Gap(context.fs(32, max: 64)),
                   NeubrutalistButton(
                     label: _saving ? 'SAVING...' : 'SAVE CHANGES',
                     color: const Color(0xFF0001BB),
                     textColor: Colors.white,
                     onPressed: _saving ? null : _saveProfile,
                   ),
-                  const Gap(20),
+                  Gap(context.fs(16, max: 32)),
                   TextButton(
                     onPressed: () async {
                       await FirebaseAuth.instance.signOut();
                       if (mounted) context.go('/login');
                     },
-                    child: const Text('Sign Out', style: TextStyle(color: Color(0xFF720100), fontWeight: FontWeight.w900)),
+                    child: Text('Sign Out', style: TextStyle(color: const Color(0xFF720100), fontWeight: FontWeight.w900, fontSize: context.ff(14, max: 18))),
                   ),
-                  const Gap(40),
+                  Gap(context.fs(32, max: 64)),
                 ],
               );
             },

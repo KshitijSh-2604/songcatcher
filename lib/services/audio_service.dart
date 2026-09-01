@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 class SongAudioService {
@@ -7,11 +8,16 @@ class SongAudioService {
   int _silenceOffset = 0;
   Timer? _clipTimer;
 
+  bool _configured = false;
+
   Future<void> loadSong(String audioUrl, {int silenceOffset = 0}) async {
     _silenceOffset = silenceOffset;
 
-    final session = await AudioSession.instance;
-    await session.configure(const AudioSessionConfiguration.music());
+    if (!_configured) {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+      _configured = true;
+    }
 
     await _player.setUrl(audioUrl);
   }
@@ -25,7 +31,9 @@ class SongAudioService {
 
     final start = Duration(seconds: _silenceOffset);
     await _player.seek(start);
-    await _player.play();
+    // Don't await play() here as it completes only when the full track ends.
+    // We want the timer to fire after [seconds].
+    unawaited(_player.play());
 
     _clipTimer = Timer(Duration(seconds: seconds), () {
       if (_player.playing) _player.pause();
@@ -49,7 +57,7 @@ class SongAudioService {
     _clipTimer = null;
     await _player.setVolume(volume);
     await _player.seek(Duration(seconds: _silenceOffset));
-    await _player.play();
+    unawaited(_player.play());
   }
 
   Future<void> stop() async {

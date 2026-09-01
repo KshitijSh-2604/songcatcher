@@ -14,7 +14,7 @@ class DailyChallengeService {
 
   Future<DailyChallenge> getOrCreateChallenge(String vibe) async {
     // Ensure we only use core vibes for daily challenge
-    final coreVibes = ['Bollywood', 'English', 'International'];
+    final coreVibes = ['Bollywood', 'Punjabi', 'English', 'International'];
     final normalizedVibe = coreVibes.contains(vibe) ? vibe : 'English';
 
     final id = '${_todayStr}_$normalizedVibe';
@@ -34,16 +34,16 @@ class DailyChallengeService {
     // Create new challenge for the core vibe
     final songs = await _itunes.fetchSongsForRoom(
       genre: normalizedVibe,
-      yearFrom: 1950,
+      yearFrom: 1980, // 🎵 Focus on more modern hits for daily challenge variety
       yearTo: DateTime.now().year,
-      count: 5,
+      count: 10, // Fetch more to shuffle
     );
 
     final challenge = DailyChallenge(
       id: id,
       date: _todayStr,
       vibe: vibe,
-      songs: songs,
+      songs: (songs..shuffle()).take(5).toList(),
       createdAt: DateTime.now(),
     );
 
@@ -150,15 +150,23 @@ class DailyChallengeService {
         .map((snap) => snap.docs.map((d) => DailyAttempt.fromMap(d.id, d.data() as Map<String, dynamic>)).toList());
   }
 
-  /// ONE-TIME CLEAR: Call this to reset all attempts for today (dev only)
+  /// ONE-TIME CLEAR: Call this to reset all challenges and attempts for today (dev only)
   Future<void> clearTodayAttempts() async {
-    final snap = await _db
+    final attemptsSnap = await _db
         .collection('daily_attempts')
         .where('date', isEqualTo: _todayStr)
         .get();
     
+    final challengesSnap = await _db
+        .collection('daily_challenges')
+        .where('date', isEqualTo: _todayStr)
+        .get();
+
     final batch = _db.batch();
-    for (var doc in snap.docs) {
+    for (var doc in attemptsSnap.docs) {
+      batch.delete(doc.reference);
+    }
+    for (var doc in challengesSnap.docs) {
       batch.delete(doc.reference);
     }
     await batch.commit();

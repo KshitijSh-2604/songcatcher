@@ -49,3 +49,5 @@ debug_error.txt
 debug_output.txt
 firebase-debug.log
 skills-lock.json
+
+.artifacts/

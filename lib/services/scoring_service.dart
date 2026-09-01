@@ -1,5 +1,7 @@
 import 'dart:math';
 
+enum GuessResult { correct, close, wrong }
+
 class ScoringService {
   // Max points awarded per reveal stage — earlier/shorter clip guessed
   // correctly is worth more. Difficulty multiplier scales on top of this.
@@ -48,32 +50,27 @@ class ScoringService {
 
   // ── Fuzzy guess matching ─────────────────────────────────────────────────
 
-  bool isCorrectGuess({
+  GuessResult checkGuess({
     required String guess,
     required String title,
-    required String artist,
   }) {
     final g = _normalize(guess);
     final t = _normalize(title);
 
-    if (g.isEmpty || t.isEmpty) return false;
+    if (g.isEmpty || t.isEmpty) return GuessResult.wrong;
 
     // Exact match after normalization
-    if (g == t) return true;
+    if (g == t) return GuessResult.correct;
 
     // Title contains guess or vice versa as a whole word
     if (t.split(' ').contains(g) || g.split(' ').contains(t)) {
-       // Only allow this if the word is substantial
-       if (g.length > 3 && t.length > 3) return true;
+       if (g.length > 3 && t.length > 3) return GuessResult.correct;
     }
 
     // Advanced Fuzzy Matching using Levenshtein distance
     final distance = _levenshtein(g, t);
     
-    // Dynamic threshold based on actual title length:
-    // - > 10 chars: allow 3 wrong
-    // - 7 to 10 chars: allow 2 wrong
-    // - <= 6 chars: allow 1 wrong
+    // Dynamic threshold based on actual title length
     int threshold;
     if (t.length > 10) {
       threshold = 3;
@@ -83,7 +80,20 @@ class ScoringService {
       threshold = 1;
     }
 
-    return distance <= threshold;
+    if (distance <= threshold) return GuessResult.correct;
+    
+    // 🟠 "Close" logic: if it's within a few steps of the threshold
+    if (distance <= threshold + 2) return GuessResult.close;
+
+    return GuessResult.wrong;
+  }
+
+  bool isCorrectGuess({
+    required String guess,
+    required String title,
+    required String artist,
+  }) {
+    return checkGuess(guess: guess, title: title) == GuessResult.correct;
   }
 
   /// Normalizes strings for matching: lowercases, removes special characters,

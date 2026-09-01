@@ -8,6 +8,10 @@ class Player {
   final bool hasGuessedCorrectly;
   final bool isOnline;
   final int lastPointsEarned;
+  final bool isTyping; // 🆕 New field
+  final bool isReady;  // 🆕 Added
+  final int totalElapsedMs; // 🆕 Added
+  final int hardCorrectGuesses; // 🆕 Added
 
   const Player({
     required this.id,
@@ -19,6 +23,10 @@ class Player {
     required this.hasGuessedCorrectly,
     required this.isOnline,
     this.lastPointsEarned = 0,
+    this.isTyping = false,
+    this.isReady = false,
+    this.totalElapsedMs = 0,
+    this.hardCorrectGuesses = 0,
   });
 
   factory Player.fromMap(String id, Map<String, dynamic> d) {
@@ -32,6 +40,10 @@ class Player {
       hasGuessedCorrectly: d['hasGuessedCorrectly'] ?? false,
       isOnline: d['isOnline'] ?? true,
       lastPointsEarned: d['lastPointsEarned'] ?? 0,
+      isTyping: d['isTyping'] ?? false,
+      isReady: d['isReady'] ?? false,
+      totalElapsedMs: (d['totalElapsedMs'] as num?)?.toInt() ?? 0,
+      hardCorrectGuesses: (d['hardCorrectGuesses'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -44,5 +56,9 @@ class Player {
     'hasGuessedCorrectly': hasGuessedCorrectly,
     'isOnline': isOnline,
     'lastPointsEarned': lastPointsEarned,
+    'isTyping': isTyping,
+    'isReady': isReady,
+    'totalElapsedMs': totalElapsedMs,
+    'hardCorrectGuesses': hardCorrectGuesses,
   };
 }

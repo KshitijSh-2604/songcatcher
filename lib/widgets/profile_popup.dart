@@ -8,6 +8,7 @@ import '../providers/user_provider.dart';
 import '../providers/room_provider.dart';
 import '../utils/responsive.dart';
 import '../screens/game/widgets/skribbl_avatar.dart';
+import 'how_to_play_dialog.dart'; // 🆕 Import
 
 class ProfilePopup extends ConsumerWidget {
   const ProfilePopup({super.key});
@@ -15,25 +16,7 @@ class ProfilePopup extends ConsumerWidget {
   void _showHowToPlay(BuildContext context) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('How to Play', style: TextStyle(fontWeight: FontWeight.w900)),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('1. Listen to the song clip (starts at 2s).', style: TextStyle(fontWeight: FontWeight.w700)),
-            SizedBox(height: 8),
-            Text('2. Type the Song Title correctly to catch it!'),
-            SizedBox(height: 8),
-            Text('3. Replay to hear more (up to 10s).'),
-            SizedBox(height: 8),
-            Text('4. Faster & fewer tries = More MusCoins!'),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('GOT IT')),
-        ],
-      ),
+      builder: (ctx) => const HowToPlayDialog(),
     );
   }
 

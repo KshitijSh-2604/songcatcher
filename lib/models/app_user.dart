@@ -118,6 +118,7 @@ class DailyStats {
 class AppUser {
   final String uid;
   final String displayName;
+  final String catcherId; // 🆔 Unique ID (e.g. SONGCATCHER#4921)
   final String? photoUrl;
   final String? email;
   final String? phoneNumber;
@@ -127,11 +128,16 @@ class AppUser {
   final UserStats arenaStats;
   final DailyStats dailyStats;
   final int musCoins;
+  final bool isOnline; // 🟢 Online status
+  final String currentActivity; // 🆕 Activity status
+  final DateTime lastSeen; // ⏱️ Activity tracking
   final DateTime createdAt;
+  final DateTime? lastReadGlobalNotificationAt; // 🔔 New field
 
   const AppUser({
     required this.uid,
     required this.displayName,
+    required this.catcherId,
     this.photoUrl,
     this.email,
     this.phoneNumber,
@@ -141,7 +147,11 @@ class AppUser {
     this.arenaStats = const UserStats(),
     this.dailyStats = const DailyStats(),
     this.musCoins = 0,
+    this.isOnline = false,
+    this.currentActivity = 'Home',
+    required this.lastSeen,
     required this.createdAt,
+    this.lastReadGlobalNotificationAt,
   });
 
   factory AppUser.fromMap(String uid, Map<String, dynamic> map) {
@@ -152,6 +162,7 @@ class AppUser {
     return AppUser(
       uid: uid,
       displayName: map['displayName'] ?? 'Player',
+      catcherId: map['catcherId'] ?? 'CATCHER#0000',
       photoUrl: map['photoUrl'],
       email: map['email'],
       phoneNumber: map['phoneNumber'],
@@ -163,12 +174,17 @@ class AppUser {
       arenaStats: UserStats.fromMap(rawArena),
       dailyStats: DailyStats.fromMap(rawDaily),
       musCoins: (map['musCoins'] as num?)?.toInt() ?? 0,
+      isOnline: map['isOnline'] ?? false,
+      currentActivity: map['currentActivity'] ?? 'Home',
+      lastSeen: (map['lastSeen'] as Timestamp?)?.toDate() ?? DateTime.now(),
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      lastReadGlobalNotificationAt: (map['lastReadGlobalNotificationAt'] as Timestamp?)?.toDate(),
     );
   }
 
   Map<String, dynamic> toMap() => {
     'displayName': displayName,
+    'catcherId': catcherId,
     'photoUrl': photoUrl,
     'email': email,
     'phoneNumber': phoneNumber,
@@ -178,11 +194,17 @@ class AppUser {
     'arenaStats': arenaStats.toMap(),
     'dailyStats': dailyStats.toMap(),
     'musCoins': musCoins,
+    'isOnline': isOnline,
+    'currentActivity': currentActivity,
+    'lastSeen': Timestamp.fromDate(lastSeen),
     'createdAt': Timestamp.fromDate(createdAt),
+    if (lastReadGlobalNotificationAt != null)
+      'lastReadGlobalNotificationAt': Timestamp.fromDate(lastReadGlobalNotificationAt!),
   };
 
   AppUser copyWith({
     String? displayName,
+    String? catcherId,
     String? photoUrl,
     String? email,
     String? phoneNumber,
@@ -192,10 +214,15 @@ class AppUser {
     UserStats? arenaStats,
     DailyStats? dailyStats,
     int? musCoins,
+    bool? isOnline,
+    String? currentActivity,
+    DateTime? lastSeen,
+    DateTime? lastReadGlobalNotificationAt,
   }) {
     return AppUser(
       uid: uid,
       displayName: displayName ?? this.displayName,
+      catcherId: catcherId ?? this.catcherId,
       photoUrl: photoUrl ?? this.photoUrl,
       email: email ?? this.email,
       phoneNumber: phoneNumber ?? this.phoneNumber,
@@ -205,7 +232,11 @@ class AppUser {
       arenaStats: arenaStats ?? this.arenaStats,
       dailyStats: dailyStats ?? this.dailyStats,
       musCoins: musCoins ?? this.musCoins,
+      isOnline: isOnline ?? this.isOnline,
+      currentActivity: currentActivity ?? this.currentActivity,
+      lastSeen: lastSeen ?? this.lastSeen,
       createdAt: createdAt,
+      lastReadGlobalNotificationAt: lastReadGlobalNotificationAt ?? this.lastReadGlobalNotificationAt,
     );
   }
 }

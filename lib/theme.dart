@@ -84,8 +84,7 @@ class AppTheme {
         elevation: 0,
         centerTitle: false,
         iconTheme: IconThemeData(color: text, size: 24),
-        titleTextStyle: TextStyle(
-          fontFamily: 'Bricolage Grotesque',
+        titleTextStyle: GoogleFonts.bricolageGrotesque(
           fontWeight: FontWeight.w900,
           fontSize: 24,
           color: isDark ? darkPrimary : primary,

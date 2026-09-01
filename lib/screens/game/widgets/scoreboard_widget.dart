@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../models/player.dart';
 import '../../../utils/responsive.dart';
 import '../../../models/app_user.dart';
@@ -15,40 +16,43 @@ class ScoreboardWidget extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentUser = ref.watch(currentUserProvider);
+    // 🚀 Performance: Only watch uid
+    final currentUserId = ref.watch(currentUserProvider.select((u) => u?.uid));
+    final isCompact = MediaQuery.of(context).size.height < 600 || MediaQuery.of(context).size.width < 600;
 
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          color: Theme.of(context).cardColor,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.bar_chart, color: Theme.of(context).textTheme.bodyLarge?.color),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Top Catchers',
-                    style: TextStyle(fontFamily: 'Bricolage Grotesque', fontWeight: FontWeight.w900, fontSize: 18),
-                  ),
-                  const Spacer(),
-                  const _LiveBadge(),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Text('RANK  PLAYER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Theme.of(context).hintColor)),
-                  const Spacer(),
-                  Text('TRIES  TIME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Theme.of(context).hintColor)),
-                ],
-              ),
-            ],
+        if (!isCompact)
+          Container(
+            padding: EdgeInsets.all(context.fs(12, max: 16)),
+            color: Theme.of(context).cardColor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.bar_chart, color: Theme.of(context).textTheme.bodyLarge?.color, size: context.fs(18, max: 24)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Top Catchers',
+                      style: GoogleFonts.bricolageGrotesque(fontWeight: FontWeight.w900, fontSize: context.ff(15, max: 18)),
+                    ),
+                    const Spacer(),
+                    const _LiveBadge(),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Text('RANK  PLAYER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Theme.of(context).hintColor)),
+                    const Spacer(),
+                    const Text('POINTS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.black54)),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-        Divider(height: 1, color: Theme.of(context).dividerColor, thickness: 2),
+        if (!isCompact) Divider(height: 1, color: Theme.of(context).dividerColor, thickness: 2),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
@@ -67,19 +71,24 @@ class ScoreboardWidget extends ConsumerWidget {
                   .toList();
 
               return ListView.builder(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(context.fs(8, max: 12)),
                 itemCount: players.length,
+                addAutomaticKeepAlives: false, // 🚀 OPTIMIZATION: Reduce memory for off-screen items
+                addRepaintBoundaries: true,
                 itemBuilder: (_, i) {
                   final p = players[i];
-                  final isMe = p.id == currentUser?.uid;
+                  final isMe = p.id == currentUserId;
 
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _ScoreTile(
-                      player: p,
-                      rank: i + 1,
-                      isMe: isMe,
-                    ).animate().fadeIn(delay: Duration(milliseconds: i * 100)).slideX(begin: 0.1),
+                  return RepaintBoundary( // 🚀 Performance: Isolate scoreboard animations
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: context.fs(6, max: 12)),
+                      child: _ScoreTile(
+                        player: p,
+                        rank: i + 1,
+                        isMe: isMe,
+                        isCompact: isCompact,
+                      ).animate().fadeIn(delay: Duration(milliseconds: i * 100)).slideX(begin: 0.1),
+                    ),
                   );
                 },
               );
@@ -95,8 +104,9 @@ class _ScoreTile extends StatefulWidget {
   final Player player;
   final int rank;
   final bool isMe;
+  final bool isCompact;
 
-  const _ScoreTile({required this.player, required this.rank, required this.isMe});
+  const _ScoreTile({required this.player, required this.rank, required this.isMe, this.isCompact = false});
 
   @override
   State<_ScoreTile> createState() => _ScoreTileState();
@@ -107,6 +117,8 @@ class _ScoreTileState extends State<_ScoreTile> {
 
   @override
   Widget build(BuildContext context) {
+    final double avatarSize = widget.isCompact ? 24 : 34;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
@@ -115,10 +127,10 @@ class _ScoreTileState extends State<_ScoreTile> {
         children: [
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            transform: _hovering ? (Matrix4.identity()..scale(1.03)) : Matrix4.identity(),
+            transform: _hovering ? Matrix4.diagonal3Values(1.03, 1.03, 1.0) : Matrix4.identity(),
             child: NeubrutalistContainer(
               color: widget.isMe ? const Color(0xFFFFFF00) : Theme.of(context).cardColor,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: EdgeInsets.symmetric(horizontal: context.fs(8, max: 12), vertical: context.fs(6, max: 10)),
               shadowOffset: _hovering ? 6 : 3,
               child: Row(
                 children: [
@@ -126,33 +138,33 @@ class _ScoreTileState extends State<_ScoreTile> {
                     '#${widget.rank}',
                     style: TextStyle(
                       fontWeight: FontWeight.w900, 
-                      fontSize: 16,
+                      fontSize: widget.isCompact ? 13 : 16,
                       color: widget.isMe ? Colors.black : Theme.of(context).textTheme.bodyLarge?.color,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: widget.isCompact ? 8 : 12),
                   Container(
-                    width: 34,
-                    height: 34,
+                    width: avatarSize,
+                    height: avatarSize,
                     decoration: BoxDecoration(
                       color: Colors.white,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.black, width: 2),
+                      border: Border.all(color: Colors.black, width: widget.isCompact ? 1.5 : 2),
                     ),
                     child: Center(
                       child: SkribblAvatar(
                         config: AvatarConfig.fromMap(widget.player.avatarConfig),
-                        size: 24,
+                        size: avatarSize * 0.7,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: widget.isCompact ? 8 : 12),
                   Expanded(
                     child: Text(
                       widget.isMe ? 'You' : widget.player.displayName,
                       style: TextStyle(
                         fontWeight: FontWeight.w900, 
-                        fontSize: 14,
+                        fontSize: widget.isCompact ? 12 : 14,
                         color: widget.isMe ? Colors.black : Theme.of(context).textTheme.bodyLarge?.color,
                       ),
                       overflow: TextOverflow.ellipsis,
@@ -162,7 +174,7 @@ class _ScoreTileState extends State<_ScoreTile> {
                     '${widget.player.score}',
                     style: TextStyle(
                       fontWeight: FontWeight.w900, 
-                      fontSize: 14,
+                      fontSize: widget.isCompact ? 12 : 14,
                       color: widget.isMe ? Colors.black : Theme.of(context).textTheme.bodyLarge?.color,
                     ),
                   ),
@@ -170,7 +182,7 @@ class _ScoreTileState extends State<_ScoreTile> {
               ),
             ),
           ),
-          if (widget.isMe)
+          if (widget.isMe && !widget.isCompact)
             Positioned(
               top: -10,
               right: 20,
@@ -219,8 +231,7 @@ class _HeaderItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label,
-      style: TextStyle(
-        fontFamily: 'Bricolage Grotesque',
+      style: GoogleFonts.bricolageGrotesque(
         fontSize: 18,
         fontWeight: FontWeight.w800,
         color: isActive ? const Color(0xFF0001BB) : const Color(0xFF454558),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../models/daily_challenge.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/user_provider.dart';
@@ -17,7 +18,7 @@ class LeaderboardScreen extends ConsumerStatefulWidget {
 
 class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _vibes = ['Bollywood', 'English', 'International'];
+  final List<String> _vibes = ['Bollywood', 'Punjabi', 'English', 'International'];
 
   @override
   void initState() {
@@ -42,21 +43,21 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
         children: [
           // ── Header ────────────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: EdgeInsets.all(context.fs(16, max: 32)),
             child: Row(
               children: [
-                const Icon(Icons.emoji_events, size: 32, color: Color(0xFFFFFF00)),
-                const SizedBox(width: 16),
+                Icon(Icons.emoji_events, size: context.fs(24, max: 48), color: const Color(0xFFFFFF00)),
+                Gap(context.fs(12, max: 20), horizontal: true),
                 Text(
                   'Daily Leaderboard',
-                  style: TextStyle(fontFamily: 'Bricolage Grotesque', fontSize: 28, fontWeight: FontWeight.w900, color: Theme.of(context).textTheme.bodyLarge?.color),
+                  style: GoogleFonts.bricolageGrotesque(fontSize: context.ff(20, max: 32), fontWeight: FontWeight.w900, color: Theme.of(context).textTheme.bodyLarge?.color),
                 ),
                 const Spacer(),
                 NeubrutalistContainer(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: EdgeInsets.symmetric(horizontal: context.fs(8, max: 16), vertical: context.fs(4, max: 10)),
                   color: const Color(0xFF00FF00),
                   shadowOffset: 0,
-                  child: const Text('TOP 50', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Colors.black)),
+                  child: Text('TOP 50', style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(10, max: 14), color: Colors.black)),
                 ),
               ],
             ),
@@ -64,7 +65,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
 
           // ── Tab Bar ───────────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: EdgeInsets.symmetric(horizontal: context.fs(16, max: 32)),
             child: NeubrutalistContainer(
               padding: EdgeInsets.zero,
               color: Theme.of(context).cardColor,
@@ -74,13 +75,13 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
                 indicatorWeight: 4,
                 labelColor: const Color(0xFF4D4DFF),
                 unselectedLabelColor: Theme.of(context).hintColor,
-                labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                labelStyle: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(12, max: 16)),
                 tabs: _vibes.map((v) => Tab(text: v.toUpperCase())).toList(),
               ),
             ),
           ),
 
-          const SizedBox(height: 24),
+          Gap(context.fs(16, max: 32)),
 
           // ── Scrollable Content ────────────────────────────────────────────
           Expanded(
@@ -103,7 +104,12 @@ class _LeaderboardList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final leaderboardAsync = ref.watch(dailyLeaderboardProvider(vibe));
     final currentUser = ref.watch(currentUserProvider);
-    final userProfile = ref.watch(userProfileProvider).valueOrNull;
+    
+    // 🚀 Performance: Only watch specific fields for the footer
+    final userProfileData = ref.watch(userProfileProvider.select((p) => {
+      'displayName': p.value?.displayName ?? 'You',
+      'avatarConfig': p.value?.avatarConfig ?? {},
+    }));
 
     return leaderboardAsync.when(
       data: (attempts) {
@@ -131,8 +137,8 @@ class _LeaderboardList extends ConsumerWidget {
             ),
             // ── Fixed Footer ────────────────────────────────────────────────
             _FixedFooter(
-              displayName: userProfile?.displayName ?? 'You',
-              avatarConfig: userProfile?.avatarConfig ?? {},
+              displayName: userProfileData['displayName'] as String,
+              avatarConfig: userProfileData['avatarConfig'] as Map<String, dynamic>,
               rank: hasPlayed ? '#${myIndex + 1}' : '--th rank',
               hasPlayed: hasPlayed,
               vibe: vibe,
