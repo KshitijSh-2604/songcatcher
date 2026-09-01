@@ -61,6 +61,7 @@ class GameService {
       'hasGuessedCorrectly': false,
       'isOnline': true,
       'joinedAt': FieldValue.serverTimestamp(),
+      'lastSeen': FieldValue.serverTimestamp(), // 🆕 Added
     });
 
     return ref.id;
@@ -94,21 +95,54 @@ class GameService {
     for (final doc in allDocs) {
       final data = doc.data();
       
-      // If I'm already in this room (e.g. refreshed page), return it immediately
+      // If I'm already in this room (e.g. refreshed page), check how recently I was here
       final playerDoc = await doc.reference.collection('players').doc(userId).get();
-      if (playerDoc.exists) return doc.id;
+      if (playerDoc.exists) {
+        final pData = playerDoc.data();
+        final lastSeenTs = pData?['lastSeen'] as Timestamp?;
+        
+        // If I was away for more than 5 minutes, leave this room and find another
+        if (lastSeenTs != null) {
+          final diff = DateTime.now().difference(lastSeenTs.toDate());
+          if (diff.inMinutes >= 5) {
+            await leaveRoom(doc.id, userId);
+            continue; // Move to next room
+          }
+        }
+        return doc.id;
+      }
 
       // Skip rooms I just left (where I am still recorded as hostId but removed from players)
       if (data['hostId'] == userId) continue;
 
       // Check if room has space (max 8)
       final playersSnap = await doc.reference.collection('players').get();
+      
+      // Cleanup logic for empty rooms
       if (playersSnap.docs.isEmpty) {
         await doc.reference.delete(); // Cleanup zombie
         continue;
       }
 
-      if (playersSnap.docs.length < 8) {
+      // Prune ghost players (not seen for > 10 mins)
+      int activeCount = 0;
+      for (final p in playersSnap.docs) {
+        final lastSeen = p.data()['lastSeen'] as Timestamp?;
+        if (lastSeen != null) {
+          final diff = DateTime.now().difference(lastSeen.toDate());
+          if (diff.inMinutes < 10) activeCount++;
+        } else {
+          activeCount++;
+        }
+      }
+
+      if (activeCount == 0) {
+        // Room is full of ghosts. Nuke it.
+        await doc.reference.delete();
+        continue;
+      }
+
+      if (activeCount < 8) {
         await _addPlayerToRoom(doc.id, userId, displayName, photoUrl, avatarConfig);
         return doc.id;
       }
@@ -128,6 +162,7 @@ class GameService {
       'hasGuessedCorrectly': false,
       'isOnline': true,
       'joinedAt': FieldValue.serverTimestamp(),
+      'lastSeen': FieldValue.serverTimestamp(), // 🆕 Added
     });
   }
 
@@ -567,6 +602,13 @@ class GameService {
       batch.delete(room.reference);
       await batch.commit();
     }
+  }
+
+  Future<void> updatePlayerLastSeen(String roomId, String userId) async {
+    await _db.collection('rooms').doc(roomId).collection('players').doc(userId).update({
+      'lastSeen': FieldValue.serverTimestamp(),
+      'isOnline': true,
+    });
   }
 
   Future<void> updatePlayerDisplayName(String roomId, String userId, String newName) async {

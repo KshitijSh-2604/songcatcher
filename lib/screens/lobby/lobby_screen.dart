@@ -267,6 +267,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       NeubrutalistButton(
                         label: context.isMobile ? '←' : '← LEAVE ARENA',
@@ -280,11 +281,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                           if (mounted) goRouter.go('/home');
                         },
                       ),
-                      const Spacer(),
-                      NeubrutalistButton(
-                        label: context.isMobile ? 'INVITE' : 'INVITE FRIENDS ✉️',
-                        color: const Color(0xFF00FF00),
-                        onPressed: () => _showInviteDialog(context, roomCode),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: NeubrutalistButton(
+                          label: context.isMobile ? 'INVITE ✉️' : 'INVITE FRIENDS ✉️',
+                          color: const Color(0xFF00FF00),
+                          onPressed: () => _showInviteDialog(context, roomCode),
+                        ),
                       ),
                     ],
                   ),
@@ -670,14 +673,13 @@ class _HostControlsState extends State<_HostControls> {
       children: [
         Text('Select Vibes (Pick 1+)', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
         const Gap(8),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
             _VibeChip(label: 'Bollywood', selected: _selectedVibes.contains('Bollywood'), onTap: () => _toggleVibe('Bollywood')),
-            const SizedBox(width: 8),
             _VibeChip(label: 'Punjabi', selected: _selectedVibes.contains('Punjabi'), onTap: () => _toggleVibe('Punjabi')),
-            const SizedBox(width: 8),
             _VibeChip(label: 'English', selected: _selectedVibes.contains('English'), onTap: () => _toggleVibe('English')),
-            const SizedBox(width: 8),
             _VibeChip(label: 'International', selected: _selectedVibes.contains('International'), onTap: () => _toggleVibe('International')),
           ],
         ),

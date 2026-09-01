@@ -42,6 +42,25 @@
   <!-- Google reCAPTCHA for Firebase Phone Auth -->
   <script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>
 
+  <script type="text/javascript">
+    // Single Page Apps for GitHub Pages
+    // https://github.com/rafrex/spa-github-pages
+    // This script checks to see if a redirect is present in the query string
+    // and converts it back into the correct url and adds it to the
+    // browser's history using window.history.replaceState(...),
+    // which will cause the window load event to fire with the correct url.
+    (function(l) {
+      if (l.search[1] === '/' ) {
+        var decoded = l.search.slice(1).split('&').map(function(s) {
+          return s.replace(/~and~/g, '&')
+        }).join('?');
+        window.history.replaceState(null, null,
+            l.pathname.slice(0, -1) + decoded + l.hash
+        );
+      }
+    }(window.location));
+  </script>
+
   <style>
     /* Splash screen while Flutter loads */
     body {
@@ -101,23 +120,5 @@
 
   <!-- Flutter bootstrap -->
   <script src="flutter_bootstrap.js" async></script>
-
-  <script type="text/javascript">
-    // Single Page Apps for GitHub Pages
-    // https://github.com/rafrex/spa-github-pages
-    // This script takes the current url and converts the path and query
-    // string into just a query string, and then redirects the browser
-    // to the custom 404.html page that contains the logic to reverse the process.
-    (function(l) {
-      if (l.search[1] === '/' ) {
-        var decoded = l.search.slice(1).split('&').map(function(s) {
-          return s.replace(/~and~/g, '&')
-        }).join('?');
-        window.history.replaceState(null, null,
-            l.pathname.slice(0, -1) + decoded + l.hash
-        );
-      }
-    }(window.location));
-  </script>
 </body>
 </html>

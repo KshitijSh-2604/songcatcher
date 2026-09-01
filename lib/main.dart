@@ -67,7 +67,9 @@ class _LifecycleWrapperState extends ConsumerState<LifecycleWrapper> {
   late final AppLifecycleListener _listener;
   final _gameService = GameService();
   final _userService = UserService();
-  Timer? _backgroundTimer; // ⏲️ Background timeout timer
+  Timer? _backgroundTimer; 
+  Timer? _heartbeatTimer; // 🆕 Periodic heartbeat
+  DateTime? _lastHiddenAt; 
 
   @override
   void initState() {
@@ -80,27 +82,56 @@ class _LifecycleWrapperState extends ConsumerState<LifecycleWrapper> {
       onResume: _handleShow,
     );
     // Initial online status
-    WidgetsBinding.instance.addPostFrameCallback((_) => _handleShow());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleShow();
+      _startHeartbeat(); // 🚀 Start periodic heartbeat
+    });
   }
 
   @override
   void dispose() {
     _backgroundTimer?.cancel();
+    _heartbeatTimer?.cancel();
     _listener.dispose();
     super.dispose();
   }
 
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      final user = ref.read(currentUserProvider);
+      final roomId = ref.read(currentRoomIdProvider);
+      if (user != null && roomId != null) {
+        _gameService.updatePlayerLastSeen(roomId, user.uid);
+      }
+    });
+  }
+
   void _handleShow() {
-    _backgroundTimer?.cancel(); // Cancel cleanup if returned early
+    _backgroundTimer?.cancel(); 
     final user = ref.read(currentUserProvider);
     if (user != null) _userService.updateOnlineStatus(user.uid, true);
+
+    // 🚀 FRESH START LOGIC: If away for > 10 mins, clear existing room state
+    if (_lastHiddenAt != null) {
+      final diff = DateTime.now().difference(_lastHiddenAt!);
+      if (diff.inMinutes >= 10) {
+        final roomId = ref.read(currentRoomIdProvider);
+        if (roomId != null && user != null) {
+          _gameService.leaveRoom(roomId, user.uid);
+          ref.read(currentRoomIdProvider.notifier).state = null;
+        }
+      }
+      _lastHiddenAt = null;
+    }
   }
 
   void _handleHide() {
+    _lastHiddenAt = DateTime.now(); // 🆕 Mark time
     final user = ref.read(currentUserProvider);
     if (user != null) _userService.updateOnlineStatus(user.uid, false);
 
-    // ⏲️ Start 2-minute countdown for room cleanup
+    // ⏲️ Start 2-minute countdown for room cleanup (may be throttled by browser)
     _backgroundTimer?.cancel();
     _backgroundTimer = Timer(const Duration(minutes: 2), () {
       final roomId = ref.read(currentRoomIdProvider);

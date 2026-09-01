@@ -84,7 +84,7 @@ class NotificationPopup extends ConsumerWidget {
       child: NeubrutalistContainer(
         color: bgColor,
         padding: const EdgeInsets.all(16),
-        width: 320,
+        width: context.isMobile ? MediaQuery.of(context).size.width * 0.9 : 350,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,7 +115,7 @@ class NotificationPopup extends ConsumerWidget {
               )
             else
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 400),
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: allItems.length,

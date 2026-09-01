@@ -276,51 +276,82 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           // ── Match Types ───────────────────────────────────────────────
           Padding(
             padding: EdgeInsets.symmetric(horizontal: context.fs(16, max: 32)),
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: _MatchTypeCard(
+            child: context.isMobile 
+              ? Column(
+                  children: [
+                    _MatchTypeCard(
                       icon: Icons.public,
                       label: 'Public Arena',
                       sublabel: 'Join any open match instantly.',
                       iconColor: const Color(0xFF4D4DFF),
                       onTap: () => _quickJoin(),
-                    ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideX(begin: -0.1),
-                  ),
-                  Gap(context.fs(12, max: 24), horizontal: true),
-                  Expanded(
-                    child: _MatchTypeCard(
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideY(begin: 0.1),
+                    const SizedBox(height: 12),
+                    _MatchTypeCard(
                       icon: Icons.vpn_key_outlined,
                       label: 'Host Arena',
                       sublabel: 'Create a room and invite friends.',
                       iconColor: const Color(0xFF00FF00),
                       onTap: () => _createRoom(isPublic: false),
-                    ).animate().fadeIn(delay: const Duration(milliseconds: 700)).slideX(begin: 0.1),
-                  ),
-                  Gap(context.fs(12, max: 24), horizontal: true),
-                  Expanded(
-                    child: _MatchTypeCard(
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 700)).slideY(begin: 0.1),
+                    const SizedBox(height: 12),
+                    _MatchTypeCard(
                       icon: Icons.celebration_outlined,
                       label: 'Party Mode',
                       sublabel: 'Songs play only on host device.',
                       iconColor: const Color(0xFFFF00FF),
                       isLocked: !ref.watch(isDevProvider),
                       onTap: () {
-                        if (context.isMobile) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Party Mode hosting is only supported on Desktop/Web.')),
-                          );
-                          return;
-                        }
                         _createRoom(isPublic: false, isPartyMode: true);
                       },
-                    ).animate().fadeIn(delay: const Duration(milliseconds: 800)).slideX(begin: 0.2),
+                    ).animate().fadeIn(delay: const Duration(milliseconds: 800)).slideY(begin: 0.1),
+                  ],
+                )
+              : IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _MatchTypeCard(
+                          icon: Icons.public,
+                          label: 'Public Arena',
+                          sublabel: 'Join any open match instantly.',
+                          iconColor: const Color(0xFF4D4DFF),
+                          onTap: () => _quickJoin(),
+                        ).animate().fadeIn(delay: const Duration(milliseconds: 600)).slideX(begin: -0.1),
+                      ),
+                      Gap(context.fs(12, max: 24), horizontal: true),
+                      Expanded(
+                        child: _MatchTypeCard(
+                          icon: Icons.vpn_key_outlined,
+                          label: 'Host Arena',
+                          sublabel: 'Create a room and invite friends.',
+                          iconColor: const Color(0xFF00FF00),
+                          onTap: () => _createRoom(isPublic: false),
+                        ).animate().fadeIn(delay: const Duration(milliseconds: 700)).slideX(begin: 0.1),
+                      ),
+                      Gap(context.fs(12, max: 24), horizontal: true),
+                      Expanded(
+                        child: _MatchTypeCard(
+                          icon: Icons.celebration_outlined,
+                          label: 'Party Mode',
+                          sublabel: 'Songs play only on host device.',
+                          iconColor: const Color(0xFFFF00FF),
+                          isLocked: !ref.watch(isDevProvider),
+                          onTap: () {
+                            if (context.isMobile) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Party Mode hosting is only supported on Desktop/Web.')),
+                              );
+                              return;
+                            }
+                            _createRoom(isPublic: false, isPartyMode: true);
+                          },
+                        ).animate().fadeIn(delay: const Duration(milliseconds: 800)).slideX(begin: 0.2),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                ),
           ),
 
           Gap(context.fs(16, max: 32)),
@@ -650,18 +681,18 @@ class _VibeGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final vibes = ['Bollywood', 'Punjabi', 'English', 'International'];
-    return Row(
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
       children: vibes.map((v) {
         final isSelected = selected == v;
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(right: v == vibes.last ? 0 : 12),
-            child: _VibeButton(
-              label: v,
-              color: isSelected ? const Color(0xFF4D4DFF) : null,
-              textColor: isSelected ? Colors.white : null,
-              onTap: () => onSelect(v),
-            ),
+        return SizedBox(
+          width: context.isMobile ? (MediaQuery.of(context).size.width - 44) / 2 : null,
+          child: _VibeButton(
+            label: v,
+            color: isSelected ? const Color(0xFF4D4DFF) : null,
+            textColor: isSelected ? Colors.white : null,
+            onTap: () => onSelect(v),
           ),
         );
       }).toList(),

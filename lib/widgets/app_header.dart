@@ -18,6 +18,7 @@ class AppHeader extends ConsumerWidget {
   const AppHeader({super.key});
 
   void _showProfilePopup(BuildContext context) {
+    final isMobile = context.isMobile;
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.4),
@@ -25,7 +26,7 @@ class AppHeader extends ConsumerWidget {
         children: [
           Positioned(
             top: 75,
-            right: 20,
+            right: isMobile ? (MediaQuery.of(context).size.width - 280) / 2 : 20,
             child: const ProfilePopup(),
           ),
         ],
@@ -34,6 +35,7 @@ class AppHeader extends ConsumerWidget {
   }
 
   void _showNotificationPopup(BuildContext context) {
+    final isMobile = context.isMobile;
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.4),
@@ -41,7 +43,7 @@ class AppHeader extends ConsumerWidget {
         children: [
           Positioned(
             top: 75,
-            right: 80, // Slightly to the left of profile
+            right: isMobile ? (MediaQuery.of(context).size.width * 0.05) : 80, 
             child: const NotificationPopup(),
           ),
         ],
@@ -77,16 +79,18 @@ class AppHeader extends ConsumerWidget {
       }).length;
     }
 
+    final isMobile = context.isMobile;
+
     return Container(
       height: context.fs(60, max: 90),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor, width: 3)),
       ),
-      padding: EdgeInsets.symmetric(horizontal: context.fs(12, max: 24)),
+      padding: EdgeInsets.symmetric(horizontal: context.fs(8, max: 24)),
       child: Row(
         children: [
-          if (context.isMobile) ...[
+          if (isMobile) ...[
             IconButton(
               icon: const Icon(Icons.menu),
               onPressed: () => Scaffold.of(context).openDrawer(),
@@ -94,16 +98,16 @@ class AppHeader extends ConsumerWidget {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
           ],
           GestureDetector(
             onTap: () => context.go('/home'),
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
               child: Text(
-                'SongCatcher',
+                isMobile ? 'SC' : 'SongCatcher',
                 style: GoogleFonts.bricolageGrotesque(
-                  fontSize: context.ff(16, max: 28),
+                  fontSize: context.ff(18, max: 28),
                   fontWeight: FontWeight.w900,
                   color: isDark ? Colors.white : const Color(0xFF0001BB),
                 ),
@@ -121,31 +125,31 @@ class AppHeader extends ConsumerWidget {
             }),
             Gap(context.fs(16, max: 32), horizontal: true),
           ],
-          _MusCoinsBadge(coins: musCoins),
-          Gap(context.fs(8, max: 16), horizontal: true),
+          _MusCoinsBadge(coins: musCoins, compact: isMobile),
+          Gap(isMobile ? 4 : 8, horizontal: true),
           _HeaderIconButton(
             icon: settings.sfxEnabled ? Icons.volume_up : Icons.volume_off,
             onPressed: () => ref.read(settingsProvider.notifier).toggleSfx(),
           ),
-          Gap(context.fs(4, max: 8), horizontal: true),
+          Gap(isMobile ? 2 : 4, horizontal: true),
           _HeaderIconButton(
             icon: isDark ? Icons.light_mode : Icons.dark_mode,
             onPressed: () => ref.read(themeModeProvider.notifier).toggleTheme(),
           ),
-          Gap(context.fs(4, max: 8), horizontal: true),
+          Gap(isMobile ? 2 : 4, horizontal: true),
           _HeaderIconButton(
             icon: Icons.notifications_none,
             badgeCount: unreadCount,
             onPressed: () => _showNotificationPopup(context),
           ),
-          Gap(context.fs(8, max: 16), horizontal: true),
+          Gap(isMobile ? 4 : 8, horizontal: true),
           GestureDetector(
             onTap: () => _showProfilePopup(context),
             child: MouseRegion(
               cursor: SystemMouseCursors.click,
               child: Container(
-                width: context.fs(32, max: 48),
-                height: context.fs(32, max: 48),
+                width: context.fs(30, max: 48),
+                height: context.fs(30, max: 48),
                 decoration: BoxDecoration(
                   color: const Color(0xFF00FF00),
                   shape: BoxShape.circle,
@@ -155,9 +159,9 @@ class AppHeader extends ConsumerWidget {
                   child: avatarConfig != null
                     ? SkribblAvatar(
                         config: AvatarConfig.fromMap(avatarConfig),
-                        size: context.fs(20, max: 32),
+                        size: context.fs(18, max: 32),
                       )
-                    : Icon(Icons.person, color: Theme.of(context).dividerColor, size: context.fs(18, max: 28)),
+                    : Icon(Icons.person, color: Theme.of(context).dividerColor, size: context.fs(16, max: 28)),
                 ),
               ),
             ),
@@ -244,11 +248,12 @@ class _HeaderItem extends StatelessWidget {
 
 class _MusCoinsBadge extends StatelessWidget {
   final int coins;
-  const _MusCoinsBadge({required this.coins});
+  final bool compact; // 🆕 New field
+  const _MusCoinsBadge({required this.coins, this.compact = false});
   @override
   Widget build(BuildContext context) {
     return NeubrutalistContainer(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 12, vertical: 6),
       shadowOffset: 2,
       borderRadius: 4,
       color: Theme.of(context).cardColor,
@@ -257,14 +262,14 @@ class _MusCoinsBadge extends StatelessWidget {
         children: [
           // 🚀 Performance: RepaintBoundary for animated coin
           RepaintBoundary(
-            child: const Icon(Icons.monetization_on, color: Color(0xFFFFFF00), size: 18)
+            child: Icon(Icons.monetization_on, color: const Color(0xFFFFFF00), size: compact ? 14 : 18)
                 .animate(onPlay: (controller) => controller.repeat())
                 .shimmer(duration: const Duration(milliseconds: 2000)),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: compact ? 4 : 8),
           Text(
             '$coins',
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: compact ? 11 : 13),
           ),
         ],
       ),
