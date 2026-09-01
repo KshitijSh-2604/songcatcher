@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- PWA meta -->
+  <meta name="description" content="SongCatcher — Catch the song first! A multiplayer music guessing game.">
+  <meta name="theme-color" content="#0f0f1a">
+
+  <!-- Open Graph -->
+  <meta property="og:title"       content="SongCatcher">
+  <meta property="og:description" content="Catch the song first! Multiplayer music guessing game.">
+  <meta property="og:type"        content="website">
+  <meta property="og:url"         content="https://songcatcher.io">
+  <meta property="og:image"       content="https://songcatcher.io/icons/og-image.png">
+
+  <!-- Twitter card -->
+  <meta name="twitter:card"        content="summary_large_image">
+  <meta name="twitter:title"       content="SongCatcher 🎵">
+  <meta name="twitter:description" content="Guess the song faster than your friends!">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="songcatcher.io_favicon.png">
+  <link rel="apple-touch-icon"      href="songcatcher.io_favicon.png">
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <base href="/songcatcher/">
+
+  <title>SongCatcher</title>
+
+  <meta name="google-signin-client_id" content="286054429599-vojcqf0uv5rao0r4gsitcmcou9i5ft1g.apps.googleusercontent.com">
+
+  <!-- Google Fonts: Bricolage Grotesque -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&display=swap" rel="stylesheet">
+
+  <!-- Google reCAPTCHA for Firebase Phone Auth -->
+  <script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>
+
+  <style>
+    /* Splash screen while Flutter loads */
+    body {
+      margin: 0;
+      background-color: #0f0f1a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: sans-serif;
+    }
+
+    #loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 14px;
+      font-family: 'Bricolage Grotesque', sans-serif;
+    }
+
+    #loading .logo {
+      font-size: 48px;
+      animation: pulse 1.2s ease-in-out infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { opacity: 0.6; transform: scale(0.97); }
+      to   { opacity: 1.0; transform: scale(1.03); }
+    }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid rgba(180, 100, 255, 0.2);
+      border-top-color: #b464ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+
+<body>
+<!-- Container for Firebase Phone Auth reCAPTCHA -->
+<div id="recaptcha-container" style="position: fixed; bottom: 0; right: 0;"></div>
+
+<div id="loading">
+  <div class="logo">🎵</div>
+  <div class="spinner"></div>
+  <span>Loading SongCatcher…</span>
+</div>
+
+  <!-- Flutter bootstrap -->
+  <script src="flutter_bootstrap.js" async></script>
+
+  <script type="text/javascript">
+    // Single Page Apps for GitHub Pages
+    // https://github.com/rafrex/spa-github-pages
+    // This script takes the current url and converts the path and query
+    // string into just a query string, and then redirects the browser
+    // to the custom 404.html page that contains the logic to reverse the process.
+    (function(l) {
+      if (l.search[1] === '/' ) {
+        var decoded = l.search.slice(1).split('&').map(function(s) {
+          return s.replace(/~and~/g, '&')
+        }).join('?');
+        window.history.replaceState(null, null,
+            l.pathname.slice(0, -1) + decoded + l.hash
+        );
+      }
+    }(window.location));
+  </script>
+</body>
+</html>

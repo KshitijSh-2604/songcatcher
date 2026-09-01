@@ -1,0 +1,43 @@
+{
+    "name": "SongCatcher",
+    "short_name": "SongCatcher",
+    "description": "Catch the song first! Multiplayer music guessing game.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0f0f1a",
+    "theme_color": "#0f0f1a",
+    "orientation": "portrait-primary",
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ],
+    "categories": ["games", "entertainment", "music"],
+    "screenshots": [],
+    "shortcuts": [
+        {
+            "name": "Create Room",
+            "url": "/home",
+            "description": "Start a new SongCatcher room"
+        }
+    ]
+}
