@@ -33,6 +33,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Always allow splash
       if (path == '/splash') return null;
 
+      // 🔓 SPECIAL: Allow direct lobby access even if not logged in
+      // (LobbyScreen will handle auto-guest login)
+      if (path.startsWith('/lobby/')) return null;
+
       // Not logged in → force login
       if (!isLoggedIn && path != '/login') return '/login';
 

@@ -125,16 +125,21 @@ class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
     final guess = customText ?? _ctrl.text.trim();
     if (guess.isEmpty || _submitting) return;
     
-    // If I already guessed correctly, I can only send quick chats, not more guesses
-    if (_guessedCorrectly && customText == null) {
-      _focusNode.requestFocus();
-      return;
-    }
-
     setState(() => _submitting = true);
     if (customText == null) _ctrl.clear();
 
     try {
+      // If already guessed, it's just chat
+      if (_guessedCorrectly && customText == null) {
+        await widget.gameService.sendGuess(
+          roomId: widget.roomId,
+          userId: widget.userId,
+          displayName: widget.displayName,
+          guess: guess,
+        );
+        return;
+      }
+
       final result = await widget.gameService.submitGuess(
         roomId: widget.roomId,
         userId: widget.userId,
@@ -145,9 +150,6 @@ class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
       if (result == GuessResult.correct && mounted) {
         setState(() => _guessedCorrectly = true);
         
-        // ⌨️ Auto-hide keyboard on success
-        _focusNode.unfocus();
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(
@@ -186,47 +188,12 @@ class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (_guessedCorrectly) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: Row(
-              children: [
-                _QuickChatChip(label: 'I know this! 💡', onTap: () => _submitGuess(customText: 'I know this! 💡')),
-                _QuickChatChip(label: 'What a bop! 🔥', onTap: () => _submitGuess(customText: 'What a bop! 🔥')),
-                _QuickChatChip(label: 'Too hard... 💀', onTap: () => _submitGuess(customText: 'Too hard... 💀')),
-                _QuickChatChip(label: 'GG', onTap: () => _submitGuess(customText: 'GG')),
-              ],
-            ),
-          ),
-          Container(
-            padding: EdgeInsets.all(context.fs(12, max: 16)),
-            decoration: BoxDecoration(
-              color: const Color(0xFF00FF00).withOpacity(0.1),
-              border: Border(top: BorderSide(color: Theme.of(context).dividerColor, width: 2)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.check_circle, color: Color(0xFF026E00), size: 20),
-                SizedBox(width: context.fs(8, max: 12)),
-                Text(
-                  'YOU CAUGHT IT!',
-                  style: TextStyle(fontWeight: FontWeight.w900, color: const Color(0xFF026E00), fontSize: context.ff(12, max: 14)),
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
-    }
-
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // ── 1. Quick Chat Chips ──────────────────────────────────────
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -239,7 +206,20 @@ class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
             ],
           ),
         ),
-        if (_showCloseFeedback)
+
+        // ── 2. Near Miss / Correct Feedback ──────────────────────────
+        if (_guessedCorrectly)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            color: const Color(0xFF00FF00).withOpacity(0.9),
+            child: const Text(
+              'YOU CAUGHT IT! 🎉',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 1.5),
+            ),
+          )
+        else if (_showCloseFeedback)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -250,6 +230,8 @@ class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 1.5),
             ),
           ),
+
+        // ── 3. Input Field ───────────────────────────────────────────
         Container(
           padding: EdgeInsets.all(context.fs(10, max: 16)),
           decoration: BoxDecoration(
@@ -262,7 +244,7 @@ class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
                 child: NeubrutalistContainer(
                   padding: EdgeInsets.symmetric(horizontal: context.fs(12, max: 16), vertical: context.fs(2, max: 4)),
                   shadowOffset: 0,
-                  color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withOpacity(0.1) : (_showCloseFeedback ? Colors.orange.withOpacity(0.1) : Colors.white),
+                  color: isDark ? Colors.white.withOpacity(0.1) : (_guessedCorrectly ? Colors.green.withOpacity(0.1) : (_showCloseFeedback ? Colors.orange.withOpacity(0.1) : Colors.white)),
                   borderWidth: 2,
                   child: TextField(
                     controller: _ctrl,
@@ -272,7 +254,7 @@ class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
                     onSubmitted: (_) => _submitGuess(),
                     style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).textTheme.bodyLarge?.color, fontSize: context.ff(13, max: 15)),
                     decoration: InputDecoration(
-                      hintText: 'Song title...',
+                      hintText: _guessedCorrectly ? 'Chat with others...' : 'Song title...',
                       hintStyle: TextStyle(color: Theme.of(context).hintColor, fontSize: context.ff(12, max: 14)),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -287,11 +269,11 @@ class _GuessInputWidgetState extends ConsumerState<GuessInputWidget> {
                 onTap: _submitting ? null : _submitGuess,
                 child: NeubrutalistContainer(
                   padding: EdgeInsets.all(context.fs(10, max: 12)),
-                  color: Theme.of(context).primaryColor,
+                  color: _guessedCorrectly ? Colors.green : Theme.of(context).primaryColor,
                   shadowOffset: 2,
                   child: _submitting
                       ? SizedBox(width: context.fs(18, max: 20), height: context.fs(18, max: 20), child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : Icon(Icons.send, color: Colors.white, size: context.fs(18, max: 20)),
+                      : Icon(_guessedCorrectly ? Icons.chat : Icons.send, color: Colors.white, size: context.fs(18, max: 20)),
                 ),
               ),
             ],

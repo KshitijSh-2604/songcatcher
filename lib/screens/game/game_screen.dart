@@ -188,9 +188,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       }
 
       if (players.isNotEmpty && room.status == RoomStatus.playing && !_skipped) {
-        if (room.skipVotes.length >= (players.length / 2).ceil()) {
+        if (room.skipVotes.length > (players.length / 2)) {
           _skipped = true;
-          // 👑 Only the host has permission to update the room status and rollback points
+          // 👑 Only the host has permission to update the room status
           if (isHost) {
             _gameService.skipRound(widget.roomId);
           }
@@ -291,6 +291,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             userId: user!.uid,
                             gameService: _gameService,
                             room: room,
+                            totalPlayers: totalPlayers,
                           ),
                         ],
                       ),
@@ -562,26 +563,39 @@ class _SkipVoteButton extends StatelessWidget {
   final String userId;
   final GameService gameService;
   final Room room;
+  final int totalPlayers; // 🆕
 
-  const _SkipVoteButton({required this.roomId, required this.userId, required this.gameService, required this.room});
+  const _SkipVoteButton({required this.roomId, required this.userId, required this.gameService, required this.room, required this.totalPlayers});
 
   @override
   Widget build(BuildContext context) {
     final hasVotedSkip = room.skipVotes.contains(userId);
     final isPlaying = room.status == RoomStatus.playing;
+    final bool canStillSkip = room.canSkip;
+    
+    final votes = room.skipVotes.length;
+    final required = (totalPlayers / 2).floor() + 1;
+
     return GestureDetector(
-      onTap: (!isPlaying || hasVotedSkip) ? null : () => gameService.voteToSkip(roomId, userId),
+      onTap: (!isPlaying || hasVotedSkip || !canStillSkip) ? null : () => gameService.voteToSkip(roomId, userId),
       child: NeubrutalistContainer(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        color: hasVotedSkip ? Colors.grey : const Color(0xFFFFFF00),
-        shadowOffset: hasVotedSkip ? 0 : 2,
+        color: (!canStillSkip) ? Colors.black26 : (hasVotedSkip ? Colors.grey : const Color(0xFFFFFF00)),
+        shadowOffset: (hasVotedSkip || !canStillSkip) ? 0 : 2,
         borderWidth: 2,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.skip_next, size: 16, color: hasVotedSkip ? Colors.white70 : Colors.black),
+            Icon(Icons.skip_next, size: 16, color: (hasVotedSkip || !canStillSkip) ? Colors.white70 : Colors.black),
             const SizedBox(width: 4),
-            Text(hasVotedSkip ? 'VOTED' : 'SKIP', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: hasVotedSkip ? Colors.white70 : Colors.black)),
+            Text(
+              !canStillSkip ? 'NO SKIPS LEFT' : (hasVotedSkip ? 'VOTED ($votes/$required)' : 'SKIP ($votes/$required)'), 
+              style: TextStyle(
+                fontWeight: FontWeight.w900, 
+                fontSize: 10, 
+                color: (hasVotedSkip || !canStillSkip) ? Colors.white70 : Colors.black
+              )
+            ),
           ],
         ),
       ),

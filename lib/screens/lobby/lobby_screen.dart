@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // 🆕 Add import
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -16,6 +17,7 @@ import '../../models/app_user.dart';
 import '../../models/friendship.dart';
 import '../../services/friend_service.dart';
 import '../game/widgets/skribbl_avatar.dart';
+import '../game/widgets/guess_history_widget.dart';
 
 class LobbyScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -29,38 +31,84 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   final _gameService = GameService();
   bool _starting = false;
   bool _navigating = false;
-  bool _joining = true; // 🆕 Track joining state
+  bool _joining = true; 
   Timer? _countdownTimer;
+
+  // ⏲️ Inactivity Tracking
+  DateTime _lastActionAt = DateTime.now();
+  Timer?   _inactivityTimer;
 
   @override
   void initState() {
     super.initState();
     _handleInitialJoin();
+    _startInactivityTimer();
+  }
+
+  void _startInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (!mounted) return;
+      final diff = DateTime.now().difference(_lastActionAt).inMinutes;
+      if (diff >= 15 && !_starting && !_navigating) {
+        _handleInactivityExit();
+      }
+    });
+  }
+
+  void _handleInactivityExit() async {
+    if (_navigating) return;
+    _navigating = true;
+    final user = ref.read(currentUserProvider);
+    if (user != null) await _gameService.leaveRoom(widget.roomId, user.uid);
+    if (mounted) {
+      ref.read(currentRoomIdProvider.notifier).state = null;
+      context.go('/home');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Returned to home due to inactivity.')),
+      );
+    }
+  }
+
+  void _onActivity() {
+    if (mounted) setState(() => _lastActionAt = DateTime.now());
   }
 
   Future<void> _handleInitialJoin() async {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       ref.read(currentRoomIdProvider.notifier).state = widget.roomId;
       
-      final user = ref.read(currentUserProvider);
-      // Wait for profile if it's still loading
+      var user = ref.read(currentUserProvider);
+
+      // 🚀 AUTO-GUEST LOGIN: If not signed in, join as guest immediately
+      if (user == null) {
+        try {
+          final cred = await FirebaseAuth.instance.signInAnonymously();
+          user = cred.user;
+          // Small delay to let Riverpod catch up with the new auth state
+          await Future.delayed(const Duration(milliseconds: 500));
+        } catch (e) {
+          debugPrint('Auto-guest login failed: $e');
+          if (mounted) context.go('/login');
+          return;
+        }
+      }
+
       final profile = await ref.read(userProfileProvider.future);
       
       if (user != null) {
-        // 🚀 Update activity status
         ref.read(userServiceProvider).updateActivity(user.uid, 'In Lobby');
 
         try {
-          // Check if already in players list
           final players = await FirebaseFirestore.instance
               .collection('rooms')
               .doc(widget.roomId)
               .collection('players')
               .get();
           
-          final amIIn = players.docs.any((d) => d.id == user.uid);
+          final amIIn = players.docs.any((d) => d.id == user?.uid);
           
-          if (!amIIn) {
+          if (!amIIn && user != null) {
             await _gameService.joinRoomById(
               roomId: widget.roomId,
               userId: user.uid,
@@ -82,13 +130,13 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _inactivityTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _startGame() async {
     if (_starting) return;
     
-    // 👑 Only the host should manage the countdown and start logic
     final room = ref.read(roomProvider(widget.roomId)).valueOrNull;
     final user = ref.read(currentUserProvider);
     if (room?.hostId != user?.uid) return;
@@ -123,10 +171,15 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
     }
   }
 
-  void _copyCode(String code) {
-    Clipboard.setData(ClipboardData(text: code));
+  void _copyJoinLink() {
+    final String url = Uri.base.toString();
+    Clipboard.setData(ClipboardData(text: url));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Room code copied!'), duration: Duration(seconds: 1)),
+      const SnackBar(
+        content: Text('Direct join link copied! 🔗'), 
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -211,18 +264,12 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final roomStatus = ref.watch(roomProvider(widget.roomId).select((r) => r.value?.status));
-    final startCountdown = ref.watch(roomProvider(widget.roomId).select((r) => r.value?.startCountdown ?? 0));
-    final roomCode = ref.watch(roomProvider(widget.roomId).select((r) => r.value?.code ?? ''));
-    final hostId = ref.watch(roomProvider(widget.roomId).select((r) => r.value?.hostId));
-    final isPartyMode = ref.watch(roomProvider(widget.roomId).select((r) => r.value?.isPartyMode ?? false));
-    final isPublic = ref.watch(roomProvider(widget.roomId).select((r) => r.value?.isPublic ?? false));
-    final forceLockVisibility = ref.watch(roomProvider(widget.roomId).select((r) => r.value?.forceLockVisibility ?? false));
-
+    final roomAsync = ref.watch(roomProvider(widget.roomId));
     final playersAsync = ref.watch(playersProvider(widget.roomId));
     final user = ref.watch(currentUserProvider);
+    final profile = ref.watch(userProfileProvider).valueOrNull;
 
-    return ref.watch(roomProvider(widget.roomId)).when(
+    return roomAsync.when(
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
       data: (room) {
@@ -237,12 +284,9 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        if (roomStatus == RoomStatus.playing && !_navigating) {
+        if (room.status == RoomStatus.playing && !_navigating) {
           _navigating = true;
-          // 🚀 Add a high-energy zoom transition effect before leaving
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            context.go('/game/${widget.roomId}');
-          });
+          WidgetsBinding.instance.addPostFrameCallback((_) => context.go('/game/${widget.roomId}'));
         }
 
         final players = playersAsync.valueOrNull ?? [];
@@ -255,7 +299,9 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
            });
         }
 
-        final isHost = user?.uid == hostId;
+        final isHost = user?.uid == room.hostId;
+        final me = players.where((p) => p.id == user?.uid).firstOrNull;
+        final amIReady = me?.isReady ?? false;
 
         return Stack(
           children: [
@@ -286,7 +332,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                         child: NeubrutalistButton(
                           label: context.isMobile ? 'INVITE ✉️' : 'INVITE FRIENDS ✉️',
                           color: const Color(0xFF00FF00),
-                          onPressed: () => _showInviteDialog(context, roomCode),
+                          onPressed: () => _showInviteDialog(context, room.code),
                         ),
                       ),
                     ],
@@ -298,7 +344,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                     child: Column(
                       children: [
                         Text('Match Lobby', style: GoogleFonts.bricolageGrotesque(fontSize: context.ff(24, max: 42), fontWeight: FontWeight.w900, color: Colors.black)),
-                        if (isPartyMode) ...[
+                        if (room.isPartyMode) ...[
                           const Gap(8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -315,16 +361,23 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text('Room Code: ', style: TextStyle(fontWeight: FontWeight.w800, fontSize: context.ff(14, max: 20), color: Colors.black)),
+                            Text('Lobby Link: ', style: TextStyle(fontWeight: FontWeight.w800, fontSize: context.ff(14, max: 20), color: Colors.black)),
                             MouseRegion(
                               cursor: SystemMouseCursors.click,
                               child: GestureDetector(
-                                onTap: () => _copyCode(roomCode),
+                                onTap: _copyJoinLink,
                                 child: NeubrutalistContainer(
                                   padding: EdgeInsets.symmetric(horizontal: context.fs(12, max: 20), vertical: context.fs(4, max: 8)),
                                   color: Colors.white,
                                   shadowOffset: 2,
-                                  child: Text(roomCode, style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(18, max: 32), letterSpacing: 2, color: const Color(0xFF0001BB))),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(room.code, style: TextStyle(fontWeight: FontWeight.w900, fontSize: context.ff(18, max: 32), letterSpacing: 2, color: const Color(0xFF0001BB))),
+                                      const SizedBox(width: 8),
+                                      const Icon(Icons.copy, size: 20, color: Color(0xFF0001BB)),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -353,20 +406,18 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                                   ],
                                 ),
                                 const Gap(24),
-                                if (isHost)
-                                  _HostControls(
-                                    room: room,
-                                    roomId: widget.roomId,
-                                    gameService: _gameService,
-                                    playerCount: players.length,
-                                    starting: _starting,
-                                    onStart: _startGame,
-                                    isPartyMode: isPartyMode,
-                                    isPublic: isPublic,
-                                    forceLockVisibility: forceLockVisibility,
-                                  )
-                                else
-                                  const _GuestWaitingView(),
+                                _HostControls(
+                                  room: room,
+                                  roomId: widget.roomId,
+                                  gameService: _gameService,
+                                  playerCount: players.length,
+                                  starting: _starting,
+                                  onStart: _startGame,
+                                  isPartyMode: room.isPartyMode,
+                                  isPublic: room.isPublic,
+                                  forceLockVisibility: room.forceLockVisibility,
+                                  isHost: isHost,
+                                ),
                               ],
                             ),
                           ),
@@ -374,7 +425,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                           if (isHost)
                             NeubrutalistButton(
                               label: _starting ? 'STARTING...' : 'START MATCH',
-                              color: (players.where((p) => p.id != user?.uid).every((p) => p.isReady)) 
+                              color: (players.isNotEmpty && players.where((p) => p.id != user?.uid).every((p) => p.isReady)) 
                                   ? const Color(0xFF00FF00) 
                                   : Colors.grey,
                               onPressed: (players.isNotEmpty && !_starting && players.where((p) => p.id != user?.uid).every((p) => p.isReady)) 
@@ -383,34 +434,64 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                              .scale(end: const Offset(1.05, 1.05), duration: 800.ms, curve: Curves.easeInOut)
                           else
                             NeubrutalistButton(
-                              label: players.firstWhere((p) => p.id == user?.uid, orElse: () => players.first).isReady 
-                                  ? 'READY! ✅' 
-                                  : 'I\'M READY ✋',
-                              color: players.firstWhere((p) => p.id == user?.uid, orElse: () => players.first).isReady 
-                                  ? const Color(0xFF00FF00) 
-                                  : const Color(0xFFFFFF00),
-                              onPressed: () => _gameService.updateReadyStatus(widget.roomId, user!.uid, !players.firstWhere((p) => p.id == user?.uid).isReady),
+                              label: amIReady ? 'READY! ✅' : 'I\'M READY ✋',
+                              color: amIReady ? const Color(0xFF00FF00) : const Color(0xFFFFFF00),
+                              onPressed: me == null ? null : () => _gameService.updateReadyStatus(widget.roomId, user!.uid, !amIReady),
                             ),
                         ],
                       ),
-                      playersAsync.when(
-                        loading: () => const Center(child: CircularProgressIndicator()),
-                        error: (e, _) => Center(child: Text('$e')),
-                        data: (players) => _PlayersList(
-                          players: players, 
-                          user: user, 
-                          room: room, 
-                          roomId: widget.roomId,
-                          onKick: isHost ? _onKick : null,
-                          onRename: _onRename,
-                        ),
+                      Column(
+                        children: [
+                          _PlayersList(
+                            players: players, 
+                            user: user, 
+                            room: room, 
+                            roomId: widget.roomId,
+                            onKick: isHost ? _onKick : null,
+                            onRename: _onRename,
+                            gameService: _gameService,
+                          ),
+                          const Gap(24),
+                          NeubrutalistContainer(
+                            height: 350,
+                            padding: EdgeInsets.zero,
+                            child: Column(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  color: Colors.black,
+                                  child: const Row(
+                                    children: [
+                                      Icon(Icons.chat_bubble_outline, color: Colors.white, size: 16),
+                                      SizedBox(width: 8),
+                                      Text('LOBBY CHAT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12)),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child: GuessHistoryWidget(
+                                    roomId: widget.roomId, 
+                                    userId: user?.uid ?? '', 
+                                    roundNumber: 0,
+                                  ),
+                                ),
+                                _LobbyChatInput(
+                                  roomId: widget.roomId, 
+                                  userId: user?.uid ?? '', 
+                                  displayName: profile?.displayName ?? 'Player',
+                                  onSent: _onActivity, // 🆕 Reset timer
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-            if (startCountdown > 0)
+            if (room.startCountdown > 0)
               Positioned.fill(
                 child: RepaintBoundary(
                   child: Material(
@@ -438,20 +519,20 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                                   width: context.fs(180, max: 240),
                                   height: context.fs(180, max: 240),
                                   child: CircularProgressIndicator(
-                                    value: startCountdown / 5,
+                                    value: room.startCountdown / 5,
                                     strokeWidth: 12,
                                     color: const Color(0xFF00FF00),
                                     backgroundColor: Colors.white10,
                                   ),
                                 ),
                                 Text(
-                                  '$startCountdown', 
+                                  '${room.startCountdown}', 
                                   style: GoogleFonts.bricolageGrotesque(
                                     color: const Color(0xFF00FF00), 
                                     fontSize: context.ff(80, max: 120), 
                                     fontWeight: FontWeight.w900
                                   )
-                                ).animate(key: ValueKey(startCountdown)).scale(begin: const Offset(0.4, 0.4), curve: Curves.elasticOut),
+                                ).animate(key: ValueKey(room.startCountdown)).scale(begin: const Offset(0.4, 0.4), curve: Curves.elasticOut),
                               ],
                             ),
                             const Gap(40),
@@ -480,8 +561,9 @@ class _PlayersList extends StatelessWidget {
   final String roomId;
   final Function(String, String)? onKick;
   final VoidCallback onRename;
+  final GameService gameService;
 
-  const _PlayersList({required this.players, required this.user, required this.room, required this.roomId, this.onKick, required this.onRename});
+  const _PlayersList({required this.players, required this.user, required this.room, required this.roomId, this.onKick, required this.onRename, required this.gameService});
 
   @override
   Widget build(BuildContext context) {
@@ -505,6 +587,7 @@ class _PlayersList extends StatelessWidget {
           isHost: p.id == room.hostId,
           onKick: (p.id != user?.uid && onKick != null) ? () => onKick!(p.id, p.displayName) : null,
           onRename: p.id == user?.uid ? onRename : null,
+          onRandomizeAvatar: p.id == user?.uid ? () => gameService.randomizeLobbyAvatar(roomId, user.uid) : null,
         )),
         if (players.length < 8)
           NeubrutalistContainer(
@@ -530,7 +613,8 @@ class _PlayerEntry extends StatefulWidget {
   final bool isHost;
   final VoidCallback? onKick;
   final VoidCallback? onRename;
-  const _PlayerEntry({required this.player, required this.isMe, required this.isHost, this.onKick, this.onRename});
+  final VoidCallback? onRandomizeAvatar;
+  const _PlayerEntry({required this.player, required this.isMe, required this.isHost, this.onKick, this.onRename, this.onRandomizeAvatar});
 
   @override
   State<_PlayerEntry> createState() => _PlayerEntryState();
@@ -556,16 +640,16 @@ class _PlayerEntryState extends State<_PlayerEntry> {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, border: Border.all(color: Colors.black, width: 2)),
-                child: Center(child: SkribblAvatar(config: AvatarConfig.fromMap(widget.player.avatarConfig), size: 28)),
+                child: Center(child: SkribblAvatar(config: AvatarConfig.fromMap(player.avatarConfig), size: 28)),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Row(
                   children: [
-                    Flexible(child: Text(widget.player.displayName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14), overflow: TextOverflow.ellipsis)),
-                    if (!widget.isHost) ...[
+                    Flexible(child: Text(player.displayName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14), overflow: TextOverflow.ellipsis)),
+                    if (!isHost) ...[
                       const SizedBox(width: 8),
-                      if (widget.player.isReady)
+                      if (player.isReady)
                         const Icon(Icons.check_circle, color: Colors.green, size: 16)
                       else
                         Text('WAITING', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: Colors.red.withOpacity(0.5))),
@@ -573,23 +657,32 @@ class _PlayerEntryState extends State<_PlayerEntry> {
                   ],
                 ),
               ),
-              if (widget.isHost) const Icon(Icons.star, color: Color(0xFFFFFF00), size: 18),
-              if (widget.isMe) ...[
+              if (isHost) const Icon(Icons.star, color: Color(0xFFFFFF00), size: 18),
+              if (isMe) ...[
                 Text(' (YOU)', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10, color: Theme.of(context).primaryColor)),
-                const SizedBox(width: 4),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.casino_outlined, size: 18, color: Colors.orange),
+                  onPressed: onRandomizeAvatar,
+                  tooltip: 'Randomize Avatar',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.edit, size: 16),
-                  onPressed: widget.onRename,
+                  onPressed: onRename,
                   tooltip: 'Change Name',
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                   visualDensity: VisualDensity.compact,
                 ),
               ],
-              if (widget.onKick != null)
+              if (onKick != null)
                 IconButton(
                   icon: const Icon(Icons.person_remove_outlined, color: Colors.red, size: 18),
-                  onPressed: widget.onKick,
+                  onPressed: onKick,
                   tooltip: 'Kick Player',
                 ),
             ],
@@ -598,171 +691,81 @@ class _PlayerEntryState extends State<_PlayerEntry> {
       ),
     );
   }
+
+  // Helper accessors for clarity
+  dynamic get player => widget.player;
+  bool get isMe => widget.isMe;
+  bool get isHost => widget.isHost;
+  VoidCallback? get onKick => widget.onKick;
+  VoidCallback? get onRename => widget.onRename;
+  VoidCallback? get onRandomizeAvatar => widget.onRandomizeAvatar;
 }
 
-class _GuestWaitingView extends StatelessWidget {
-  const _GuestWaitingView();
-  @override
-  Widget build(BuildContext context) {
-    return const Center(child: Column(children: [CircularProgressIndicator(), SizedBox(height: 20), Text('Waiting for host to start...', style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black54))]));
-  }
-}
-
-class _HostControls extends StatefulWidget {
-  final Room room;
+class _LobbyChatInput extends StatefulWidget {
   final String roomId;
-  final GameService gameService;
-  final int playerCount;
-  final bool starting;
-  final VoidCallback onStart;
-  final bool isPartyMode;
-  final bool isPublic;
-  final bool forceLockVisibility;
+  final String userId;
+  final String displayName;
+  final VoidCallback onSent; // 🆕
 
-  const _HostControls({required this.room, required this.roomId, required this.gameService, required this.playerCount, required this.starting, required this.onStart, required this.isPartyMode, required this.isPublic, required this.forceLockVisibility});
+  const _LobbyChatInput({required this.roomId, required this.userId, required this.displayName, required this.onSent});
 
   @override
-  State<_HostControls> createState() => _HostControlsState();
+  State<_LobbyChatInput> createState() => _LobbyChatInputState();
 }
 
-class _HostControlsState extends State<_HostControls> {
-  late RangeValues _yearRange;
-  late int _songCount;
-  late List<String> _selectedVibes;
-  late List<int> _selectedStages;
+class _LobbyChatInputState extends State<_LobbyChatInput> {
+  final _ctrl = TextEditingController();
+  bool _loading = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _yearRange = RangeValues(
-      widget.room.yearFrom.toDouble(), 
-      widget.room.yearTo.toDouble() > 2020 ? 2030 : widget.room.yearTo.toDouble()
-    );
-    _songCount = widget.room.totalRounds;
-    _selectedVibes = List<String>.from(widget.room.selectedVibes);
-    _selectedStages = List<int>.from(widget.room.selectedClipStages);
-  }
+  void _send() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty || _loading) return;
 
-  void _toggleVibe(String vibe) {
-    setState(() {
-      if (_selectedVibes.contains(vibe)) {
-        if (_selectedVibes.length > 1) _selectedVibes.remove(vibe);
-      } else {
-        _selectedVibes.add(vibe);
-      }
-    });
-    widget.gameService.updateRoomSettings(widget.roomId, selectedVibes: _selectedVibes);
-  }
+    setState(() => _loading = true);
+    _ctrl.clear();
 
-  void _toggleStage(int s) {
-    setState(() {
-      if (_selectedStages.contains(s)) {
-        _selectedStages.remove(s);
-      } else {
-        _selectedStages.add(s);
-        _selectedStages.sort((a, b) => a.compareTo(b));
-      }
-    });
-    widget.gameService.updateRoomSettings(widget.roomId, selectedClipStages: _selectedStages);
+    try {
+      await GameService().sendGuess(
+        roomId: widget.roomId,
+        userId: widget.userId,
+        displayName: widget.displayName,
+        guess: text,
+        isLobby: true,
+      );
+      widget.onSent(); // 🆕 Reset inactivity timer
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('Select Vibes (Pick 1+)', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
-        const Gap(8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _VibeChip(label: 'Bollywood', selected: _selectedVibes.contains('Bollywood'), onTap: () => _toggleVibe('Bollywood')),
-            _VibeChip(label: 'Punjabi', selected: _selectedVibes.contains('Punjabi'), onTap: () => _toggleVibe('Punjabi')),
-            _VibeChip(label: 'English', selected: _selectedVibes.contains('English'), onTap: () => _toggleVibe('English')),
-            _VibeChip(label: 'International', selected: _selectedVibes.contains('International'), onTap: () => _toggleVibe('International')),
-          ],
-        ),
-        const Gap(24),
-        Text('Clip Lengths (2s, 3s, 5s mandatory)', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
-        const Gap(8),
-        Wrap(
-          spacing: 8,
-          children: [
-            const _StageChip(label: '2s', selected: true, mandatory: true),
-            const _StageChip(label: '3s', selected: true, mandatory: true),
-            const _StageChip(label: '5s', selected: true, mandatory: true),
-            _StageChip(label: '8s', selected: _selectedStages.contains(8), onTap: () => _toggleStage(8)),
-            _StageChip(label: '10s', selected: _selectedStages.contains(10), onTap: () => _toggleStage(10)),
-          ],
-        ),
-        const Gap(24),
-        Text('Songs: $_songCount', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
-        Slider(
-          value: _songCount.toDouble(),
-          min: 5, max: 25, divisions: 20,
-          onChanged: (v) => setState(() => _songCount = v.round()),
-          onChangeEnd: (v) => widget.gameService.updateRoomSettings(widget.roomId, totalRounds: v.round()),
-        ),
-        const Gap(12),
-        Text('Song Era', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
-        RangeSlider(
-          values: _yearRange, min: 1950, max: 2030, divisions: 8,
-          labels: RangeLabels(
-            _yearRange.start >= 2030 ? 'Now' : _yearRange.start.round().toString(), 
-            _yearRange.end >= 2030 ? 'Now' : _yearRange.end.round().toString()
-          ),
-          onChanged: (v) {
-            if (v.end - v.start < 10) {
-               if (v.start != _yearRange.start) {
-                  setState(() => _yearRange = RangeValues(v.start, (v.start + 10).clamp(1950, 2030)));
-               } else {
-                  setState(() => _yearRange = RangeValues((v.end - 10).clamp(1950, 2030), v.end));
-               }
-            } else {
-               setState(() => _yearRange = v);
-            }
-          },
-          onChangeEnd: (v) => widget.gameService.updateRoomSettings(widget.roomId, yearRangeStart: v.start.round(), yearRangeEnd: v.end.round()),
-        ),
-        if (!widget.isPartyMode && !widget.forceLockVisibility) ...[
-          const Gap(12),
-          Text('Room Visibility', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
-          const Gap(8),
-          Row(
-            children: [
-              _VisibilityToggle(
-                isPublic: widget.isPublic,
-                onChanged: (val) {
-                  widget.gameService.updateRoomSettings(widget.roomId, isPublic: val);
-                },
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor, width: 2)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              decoration: const InputDecoration(
+                hintText: 'Type a message...',
+                isDense: true,
+                border: InputBorder.none,
               ),
-            ],
+              onSubmitted: (_) => _send(),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.send, size: 18),
+            onPressed: _send,
+            color: Theme.of(context).primaryColor,
           ),
         ],
-        if (widget.forceLockVisibility) ...[
-          const Gap(12),
-          Text('Room Visibility', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
-          const Gap(8),
-          Row(
-            children: [
-              NeubrutalistContainer(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: const Color(0xFF00FF00),
-                shadowOffset: 0,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.public, color: Colors.black, size: 20),
-                    SizedBox(width: 12),
-                    Text('PUBLIC ARENA (LOCKED)', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Colors.black)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ],
+      ),
     );
   }
 }
@@ -777,7 +780,6 @@ class _InviteFriendsDialog extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     if (user == null) return const SizedBox.shrink();
 
-    // 🚀 FIX: Use friendshipsProvider to get IDs and userStreamProvider to get FRESH profiles
     final friendshipsAsync = ref.watch(friendshipsProvider(user.uid));
 
     return AlertDialog(
@@ -914,59 +916,182 @@ class _FreshInviteTileState extends ConsumerState<_FreshInviteTile> {
   }
 }
 
-class _VisibilityToggle extends StatelessWidget {
+class _HostControls extends StatefulWidget {
+  final Room room;
+  final String roomId;
+  final GameService gameService;
+  final int playerCount;
+  final bool starting;
+  final VoidCallback onStart;
+  final bool isPartyMode;
   final bool isPublic;
-  final ValueChanged<bool> onChanged;
+  final bool forceLockVisibility;
+  final bool isHost; 
 
-  const _VisibilityToggle({required this.isPublic, required this.onChanged});
+  const _HostControls({required this.room, required this.roomId, required this.gameService, required this.playerCount, required this.starting, required this.onStart, required this.isPartyMode, required this.isPublic, required this.forceLockVisibility, required this.isHost});
+
+  @override
+  State<_HostControls> createState() => _HostControlsState();
+}
+
+class _HostControlsState extends State<_HostControls> {
+  late RangeValues _yearRange;
+  late int _songCount;
+  late List<String> _selectedVibes;
+  late List<int> _selectedStages;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncWithRoom();
+  }
+
+  @override
+  void didUpdateWidget(_HostControls old) {
+    super.didUpdateWidget(old);
+    if (!widget.isHost) {
+      _syncWithRoom();
+    }
+  }
+
+  void _syncWithRoom() {
+    _yearRange = RangeValues(
+      widget.room.yearFrom.toDouble(), 
+      widget.room.yearTo.toDouble() > 2020 ? 2030 : widget.room.yearTo.toDouble()
+    );
+    _songCount = widget.room.totalRounds;
+    _selectedVibes = List<String>.from(widget.room.selectedVibes);
+    _selectedStages = List<int>.from(widget.room.selectedClipStages);
+  }
+
+  void _toggleVibe(String vibe) {
+    if (!widget.isHost) return; 
+    setState(() {
+      if (_selectedVibes.contains(vibe)) {
+        if (_selectedVibes.length > 1) _selectedVibes.remove(vibe);
+      } else {
+        _selectedVibes.add(vibe);
+      }
+    });
+    widget.gameService.updateRoomSettings(widget.roomId, selectedVibes: _selectedVibes);
+  }
+
+  void _toggleStage(int s) {
+    if (!widget.isHost) return; 
+    setState(() {
+      if (_selectedStages.contains(s)) {
+        _selectedStages.remove(s);
+      } else {
+        _selectedStages.add(s);
+        _selectedStages.sort((a, b) => a.compareTo(b));
+      }
+    });
+    widget.gameService.updateRoomSettings(widget.roomId, selectedClipStages: _selectedStages);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onChanged(!isPublic),
-      child: NeubrutalistContainer(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        color: isPublic ? const Color(0xFF00FF00) : const Color(0xFF720100),
-        shadowOffset: 2,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+    final bool canEdit = widget.isHost && !widget.starting;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Select Vibes (Pick 1+)', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
+        const Gap(8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            Icon(isPublic ? Icons.public : Icons.lock, 
-                 color: isPublic ? Colors.black : Colors.white, size: 20),
-            const SizedBox(width: 12),
-            Text(
-              isPublic ? 'PUBLIC ARENA' : 'PRIVATE (CODE ONLY)',
-              style: TextStyle(
-                fontWeight: FontWeight.w900, 
-                fontSize: 12, 
-                color: isPublic ? Colors.black : Colors.white
-              ),
-            ),
-            const SizedBox(width: 12),
-            NeubrutalistContainer(
-              width: 40,
-              height: 24,
-              padding: EdgeInsets.zero,
-              borderRadius: 12,
-              color: Colors.white,
-              shadowOffset: 0,
-              borderWidth: 2,
-              child: AnimatedAlign(
-                duration: const Duration(milliseconds: 200),
-                alignment: isPublic ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: const BoxDecoration(
-                    color: Colors.black,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            ),
+            _VibeChip(label: 'Bollywood', selected: _selectedVibes.contains('Bollywood'), onTap: () => _toggleVibe('Bollywood'), enabled: canEdit),
+            _VibeChip(label: 'Punjabi', selected: _selectedVibes.contains('Punjabi'), onTap: () => _toggleVibe('Punjabi'), enabled: canEdit),
+            _VibeChip(label: 'English', selected: _selectedVibes.contains('English'), onTap: () => _toggleVibe('English'), enabled: canEdit),
+            _VibeChip(label: 'International', selected: _selectedVibes.contains('International'), onTap: () => _toggleVibe('International'), enabled: canEdit),
           ],
         ),
-      ),
+        const Gap(24),
+        Text('Clip Lengths (2s, 3s, 5s mandatory)', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
+        const Gap(8),
+        Wrap(
+          spacing: 8,
+          children: [
+            const _StageChip(label: '2s', selected: true, mandatory: true),
+            const _StageChip(label: '3s', selected: true, mandatory: true),
+            const _StageChip(label: '5s', selected: true, mandatory: true),
+            _StageChip(label: '8s', selected: _selectedStages.contains(8), onTap: () => _toggleStage(8), enabled: canEdit),
+            _StageChip(label: '10s', selected: _selectedStages.contains(10), onTap: () => _toggleStage(10), enabled: canEdit),
+          ],
+        ),
+        const Gap(24),
+        Text('Songs: $_songCount', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
+        Slider(
+          value: _songCount.toDouble(),
+          min: 5, max: 25, divisions: 20,
+          onChanged: canEdit ? (v) => setState(() => _songCount = v.round()) : null,
+          onChangeEnd: (v) => widget.gameService.updateRoomSettings(widget.roomId, totalRounds: v.round()),
+        ),
+        const Gap(12),
+        Text(
+          'Song Era: ${_yearRange.start.round()} - ${_yearRange.end >= 2030 ? 'Now' : _yearRange.end.round()}', 
+          style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)
+        ),
+        RangeSlider(
+          values: _yearRange, min: 1950, max: 2030, divisions: 8,
+          labels: RangeLabels(
+            _yearRange.start >= 2030 ? 'Now' : _yearRange.start.round().toString(), 
+            _yearRange.end >= 2030 ? 'Now' : _yearRange.end.round().toString()
+          ),
+          onChanged: canEdit ? (v) {
+            if (v.end - v.start < 10) {
+               if (v.start != _yearRange.start) {
+                  setState(() => _yearRange = RangeValues(v.start, (v.start + 10).clamp(1950, 2030)));
+               } else {
+                  setState(() => _yearRange = RangeValues((v.end - 10).clamp(1950, 2030), v.end));
+               }
+            } else {
+               setState(() => _yearRange = v);
+            }
+          } : null,
+          onChangeEnd: (v) => widget.gameService.updateRoomSettings(widget.roomId, yearRangeStart: v.start.round(), yearRangeEnd: v.end.round()),
+        ),
+        if (!widget.isPartyMode && !widget.forceLockVisibility) ...[
+          const Gap(12),
+          Text('Room Visibility', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
+          const Gap(8),
+          Row(
+            children: [
+              _VisibilityToggle(
+                isPublic: widget.isPublic,
+                enabled: canEdit, 
+                onChanged: (val) {
+                  widget.gameService.updateRoomSettings(widget.roomId, isPublic: val);
+                },
+              ),
+            ],
+          ),
+        ],
+        if (widget.forceLockVisibility) ...[
+          const Gap(12),
+          Text('Room Visibility', style: TextStyle(fontWeight: FontWeight.w800, color: Theme.of(context).textTheme.bodyLarge?.color)),
+          const Gap(8),
+          Row(
+            children: [
+              NeubrutalistContainer(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: const Color(0xFF00FF00),
+                shadowOffset: 0,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.public, color: Colors.black, size: 20),
+                    SizedBox(width: 12),
+                    Text('PUBLIC ARENA (LOCKED)', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Colors.black)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }
@@ -975,17 +1100,26 @@ class _VibeChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  const _VibeChip({required this.label, required this.selected, required this.onTap});
+  final bool enabled; 
+
+  const _VibeChip({required this.label, required this.selected, required this.onTap, this.enabled = true});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       child: NeubrutalistContainer(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         color: selected ? const Color(0xFF00FF00) : Colors.white,
-        shadowOffset: selected ? 0 : 2,
-        child: Text(label, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+        shadowOffset: (selected || !enabled) ? 0 : 2,
+        child: Text(
+          label, 
+          style: TextStyle(
+            fontWeight: FontWeight.w900, 
+            fontSize: 12,
+            color: enabled ? Colors.black : Colors.black38,
+          )
+        ),
       ),
     );
   }
@@ -996,17 +1130,87 @@ class _StageChip extends StatelessWidget {
   final bool selected;
   final bool mandatory;
   final VoidCallback? onTap;
-  const _StageChip({required this.label, required this.selected, this.mandatory = false, this.onTap});
+  final bool enabled; 
+
+  const _StageChip({required this.label, required this.selected, this.mandatory = false, this.onTap, this.enabled = true});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: mandatory ? null : onTap,
+      onTap: (mandatory || !enabled) ? null : onTap,
       child: NeubrutalistContainer(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         color: selected ? (mandatory ? const Color(0xFFEEEEEE) : const Color(0xFF0001BB)) : Colors.white,
-        shadowOffset: selected ? 0 : 2,
-        child: Text(label, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: selected && !mandatory ? Colors.white : Colors.black)),
+        shadowOffset: (selected || !enabled) ? 0 : 2,
+        child: Text(
+          label, 
+          style: TextStyle(
+            fontWeight: FontWeight.w900, 
+            fontSize: 11, 
+            color: (selected && !mandatory) ? Colors.white : (enabled ? Colors.black : Colors.black38)
+          )
+        ),
+      ),
+    );
+  }
+}
+
+class _VisibilityToggle extends StatelessWidget {
+  final bool isPublic;
+  final ValueChanged<bool> onChanged;
+  final bool enabled; 
+
+  const _VisibilityToggle({required this.isPublic, required this.onChanged, this.enabled = true});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: enabled ? () => onChanged(!isPublic) : null,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.6,
+        child: NeubrutalistContainer(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: isPublic ? const Color(0xFF00FF00) : const Color(0xFF720100),
+          shadowOffset: (isPublic || !enabled) ? 2 : 0,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(isPublic ? Icons.public : Icons.lock, 
+                   color: isPublic ? Colors.black : Colors.white, size: 20),
+              const SizedBox(width: 12),
+              Text(
+                isPublic ? 'PUBLIC ARENA' : 'PRIVATE (CODE ONLY)',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900, 
+                  fontSize: 12, 
+                  color: isPublic ? Colors.black : Colors.white
+                ),
+              ),
+              const SizedBox(width: 12),
+              NeubrutalistContainer(
+                width: 40,
+                height: 24,
+                padding: EdgeInsets.zero,
+                borderRadius: 12,
+                color: Colors.white,
+                shadowOffset: 0,
+                borderWidth: 2,
+                child: AnimatedAlign(
+                  duration: const Duration(milliseconds: 200),
+                  alignment: isPublic ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    decoration: const BoxDecoration(
+                      color: Colors.black,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

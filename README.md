@@ -22,10 +22,16 @@ Every round starts with a tiny **2-second** clip. If no one catches it, the clip
 | 🐢 **Final Clue** | 8 Seconds | ⭐ |
 
 ### 🏆 Arena Features
-- **Public & Private Lobbies**: Host your own Arena or join global matches.
-- **Progressive Difficulty**: Songs get harder as the room gets more competitive.
-- **Live Leaderboard**: Real-time rankings with MVP badges (Speed Demon, Hardcore).
-- **Interactive Chat**: Quick-chat phrases and typing indicators to keep the vibe alive.
+- **Public & Private Lobbies**: Host your own Arena or join global matches instantly.
+- **Real-Time Multiplayer**: Built on Firebase Firestore for sub-second synchronization.
+- **Dynamic Skip Logic**: Democratic skipping — requires more than half the players to vote. Skips are limited based on game length.
+- **Interactive Chat & Reactions**: 
+    - **Lobby Chat**: Strategize before the game starts.
+    - **In-Game Chat**: Chat with others even after you've caught the song (Green messages).
+    - **Reactions**: Long-press any message to react with emojis (👌😂🤣❤️😭🤓💀😦😎🤖). Reactions stack for visibility.
+- **Customization**: 
+    - **Dice Button**: Randomize your avatar config instantly in the lobby.
+    - **Consistent Identity**: Your chosen name and avatar follow you throughout the match.
 
 ---
 
@@ -34,43 +40,39 @@ Choose your vibe and era to battle in your favorite genre:
 - 🇮🇳 **Bollywood** (Retro Classics to Modern Hits)
 - 🌾 **Punjabi** (Bhangra & Pop)
 - 🇺🇸 **English / International** (Global Chart-toppers)
-- 🗓️ **Decade Filtering**: Play hits from the **1950s** all the way to **2024**.
+- 🗓️ **Smart Era Filtering**: Play hits from the **1950s** all the way to **Now**. Our smart filter detects original release years even in modern compilations.
 
 ---
 
 ## 🌟 Daily Challenges
 Test your skills against the world in the **Global Daily Arena**.
 - **5 Mystery Songs**: Everyone gets the same songs every day.
-- **Top 20 Rewards**: The top 20 players on the leaderboard earn **MusCoins** at 11:59 PM IST.
-- **1st Place**: 💰 1000 MusCoins.
+- **Global Leaderboard**: Optimized sorting (Correct Count > Tries > Time).
+- **Daily Rewards**: The top 20 players earn **MusCoins** at 11:59 PM IST.
+- **lockout Period**: Maintenance from 11:55 PM to 12:00 AM for payout processing.
 
 ---
 
 ## 🪙 MusCoins & Economy
 Earn **MusCoins** by winning matches and dominating the Daily Challenges.
-- **Current Uses**: Earn and track your wealth on the global leaderboard.
-- **Planned Marketplace**: Spend your coins on:
-    - 🎭 **Custom Avatars** & Frame Borders.
-    - 🎨 **Profile Themes** & Neon Effects.
-    - 🔊 **Killstreaks** & Win SFX.
+- **Current Uses**: Track your standing and prestige.
+- **Planned Marketplace**: Spend your coins on custom avatars, profile themes, and exclusive SFX.
 
 ---
 
 ## 🛠️ Tech Stack & Optimization
 - **Frontend**: Flutter (3.24+) with **Riverpod** for rock-solid state management.
 - **Backend**: Firebase Firestore (Real-time DB) & Firebase Auth.
+- **Networking**: Path-based URL strategy (No `#` in URLs) with custom SPA routing for GitHub Pages.
 - **Audio**: `just_audio` with smart pre-loading and silence-offset detection.
-- **UI Architecture**: **Neubrutalist Design System** — bold, high-contrast, and ultra-responsive.
-- **Optimized**: High-frequency animations are isolated with `RepaintBoundary` for 60FPS gameplay on low-end devices.
+- **Performance**: High-frequency UI elements (Visualizers, Timers) are isolated with `RepaintBoundary` to maintain 60FPS.
 
 ---
 
-## 🚀 Future Roadmap
-- [ ] **Marketplace**: Fully functional shop for cosmetics.
-- [ ] **Artist Battles**: Mode where you only play songs from your selected favorite artists.
-- [ ] **Ranked System**: Competitive seasons with skill-based matchmaking.
-- [ ] **Voice Rooms**: Real-time audio chat for private lobbies.
-- [ ] **Achievements**: 50+ unlockable badges for milestones.
+## 🚀 Deployment (Beta Testing)
+The project is optimized for **GitHub Pages**.
+- **Direct Join Links**: Copy the lobby URL and share it. Friends can join instantly—even without an account (Auto-Guest login).
+- **SPA Support**: Custom `404.html` handling ensures direct links and refreshes work perfectly.
 
 ---
 

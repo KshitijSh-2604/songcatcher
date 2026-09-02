@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/room.dart';
 import '../models/song.dart';
+import '../models/app_user.dart'; // 🆕 Import for AvatarConfig
 import 'scoring_service.dart';
 import 'itunes_service.dart';
 
@@ -331,22 +332,71 @@ class GameService {
       throw Exception('Could not find enough songs for the selected vibes and era.');
     }
 
-    _songQueue[roomId] = List.from(allSongs)..shuffle(_rand);
-    final first = _songQueue[roomId]!.first;
+    final List<Map<String, dynamic>> queue = allSongs.map((s) => s.toMap()).toList()..shuffle(_rand);
+    final first = queue.first;
 
     await _db.collection('rooms').doc(roomId).update({
       'status': 'playing',
       'currentRound': 1,
-      'currentSong': first.toMap(),
+      'currentSong': first,
+      'songQueue': queue, // 🆕 Persistent queue
       'revealedSeconds': stages.first,
       'roundStartedAt': FieldValue.serverTimestamp(),
       'skipVotes': [],
       'isSkipped': false,
       'isPaused': false,
+      'skipCount': 0, 
     });
 
     // 📣 Chat Announcement (Centered in the history widget later)
     await _sendAnnouncement(roomId, ' ROUND 1 IS STARTING ');
+  }
+
+  Future<void> sendGuess({
+    required String roomId,
+    required String userId,
+    required String displayName,
+    required String guess,
+    bool isLobby = false,
+  }) async {
+    final collection = isLobby ? 'lobby_guesses' : 'guesses';
+    
+    // Get consistent name
+    final playerDoc = await _db.collection('rooms').doc(roomId).collection('players').doc(userId).get();
+    final currentName = playerDoc.data()?['displayName'] ?? displayName;
+
+    // Check message limit (500)
+    final snap = await _db.collection('rooms').doc(roomId).collection(collection).count().get();
+    if (snap.count! >= 500) return;
+
+    await _db.collection('rooms').doc(roomId).collection(collection).add({
+      'userId': userId,
+      'displayName': currentName,
+      'guess': guess,
+      'correct': false,
+      'timestamp': FieldValue.serverTimestamp(),
+      'reactions': {}, 
+    });
+
+    // 🚀 Activity Update: Sending a message counts as being active
+    await updatePlayerLastSeen(roomId, userId);
+  }
+
+  Future<void> addReaction({
+    required String roomId,
+    required String userId,
+    required String messageId,
+    required String emoji,
+    bool isLobby = false,
+  }) async {
+    final collection = isLobby ? 'lobby_guesses' : 'guesses';
+    final ref = _db.collection('rooms').doc(roomId).collection(collection).doc(messageId);
+    
+    await ref.set({
+      'reactions': {
+        userId: emoji,
+      }
+    }, SetOptions(merge: true));
   }
 
   Future<void> _sendAnnouncement(String roomId, String text) async {
@@ -355,7 +405,7 @@ class GameService {
       'displayName': 'Arena',
       'guess': text,
       'correct': false,
-      'isAnnouncement': true, // 📣 New field
+      'isAnnouncement': true, 
       'timestamp': FieldValue.serverTimestamp(),
     });
   }
@@ -377,6 +427,7 @@ class GameService {
     batch.update(roomDoc.reference, {
       'status': 'roundEnded',
       'isSkipped': true,
+      'skipCount': FieldValue.increment(1),
     });
 
     // Rollback points for anyone who guessed correctly this round
@@ -420,22 +471,33 @@ class GameService {
     if (songData == null) return GuessResult.wrong;
 
     final playerDoc = await _db.collection('rooms').doc(roomId).collection('players').doc(userId).get();
-    if (playerDoc.data()?['hasGuessedCorrectly'] == true) return GuessResult.correct;
+    final pData = playerDoc.data() ?? {};
+    final bool hasGuessed = pData['hasGuessedCorrectly'] == true;
+    final String currentName = pData['displayName'] ?? displayName; // 🆕 Use name from players collection
 
     final title = songData['title'] as String? ?? '';
     final result = _scoring.checkGuess(guess: guess, title: title);
     final isCorrect = result == GuessResult.correct;
 
+    // Limit chat to 500 messages
+    final snap = await _db.collection('rooms').doc(roomId).collection('guesses').count().get();
+    if (snap.count! >= 500) return GuessResult.wrong;
+
     await _db.collection('rooms').doc(roomId).collection('guesses').add({
       'userId': userId,
-      'displayName': displayName,
-      'guess': isCorrect ? '' : guess,
-      'correct': isCorrect,
+      'displayName': currentName, // 🆕 Use consistent name
+      'guess': (isCorrect || hasGuessed) ? guess : guess, // If already guessed, it's just chat
+      'correct': !hasGuessed && isCorrect, // Only mark as correct if first time
+      'isChat': hasGuessed, // 🆕 Mark as chat for correct guessers
       'roundNumber': room.currentRound,
       'timestamp': FieldValue.serverTimestamp(),
+      'reactions': {},
     });
 
-    if (isCorrect) {
+    // 🚀 Activity Update: Guessing counts as being active
+    await updatePlayerLastSeen(roomId, userId);
+
+    if (!hasGuessed && isCorrect) {
       final correctSnap = await _db
           .collection('rooms')
           .doc(roomId)
@@ -469,7 +531,7 @@ class GameService {
       });
     }
 
-    return result;
+    return hasGuessed ? GuessResult.correct : result;
   }
 
   Future<void> revealMoreClip(String roomId, int seconds) async {
@@ -491,31 +553,27 @@ class GameService {
       return;
     }
 
-    final queue = _songQueue[roomId];
-    Song? nextSong;
+    final queue = List<Map<String, dynamic>>.from(room.songQueue);
+    Map<String, dynamic>? nextSong;
 
-    if (queue != null && queue.length > 1) {
-      queue.removeAt(0);
-      nextSong = queue.first;
+    if (queue.length > room.currentRound) {
+      nextSong = queue[room.currentRound];
     } else {
-      final roomDoc = await _db.collection('rooms').doc(roomId).get();
-      final data = roomDoc.data()!;
-      final vibes = List<String>.from(data['selectedVibes'] ?? ['Bollywood']);
-      
+      // Emergency re-fetch if queue somehow runs dry
       final List<Song> allSongs = [];
-      for (final vibe in vibes) {
+      for (final vibe in room.selectedVibes) {
         final songs = await _itunes.fetchSongsForRoom(
           genre: vibe,
-          yearFrom: (data['yearFrom'] as num?)?.toInt() ?? 1950,
-          yearTo: (data['yearTo'] as num?)?.toInt() ?? 2020,
+          yearFrom: room.yearFrom,
+          yearTo: room.yearTo,
           count: room.totalRounds,
         );
         allSongs.addAll(songs);
       }
-      
       if (allSongs.isNotEmpty) {
-        _songQueue[roomId] = List.from(allSongs)..shuffle(_rand);
-        nextSong = _songQueue[roomId]!.first;
+        final newQueue = allSongs.map((s) => s.toMap()).toList()..shuffle(_rand);
+        nextSong = newQueue.first;
+        await _db.collection('rooms').doc(roomId).update({'songQueue': newQueue});
       }
     }
 
@@ -532,7 +590,7 @@ class GameService {
     await _db.collection('rooms').doc(roomId).update({
       'status': 'playing',
       'currentRound': room.currentRound + 1,
-      'currentSong': nextSong?.toMap(),
+      'currentSong': nextSong,
       'revealedSeconds': room.selectedClipStages.first,
       'roundStartedAt': FieldValue.serverTimestamp(),
       'skipVotes': [],
@@ -564,10 +622,18 @@ class GameService {
         'correctGuesses': 0,
         'hasGuessedCorrectly': false,
         'lastPointsEarned': 0,
+        'isReady': false, // Reset ready status
       });
     }
 
-    // 2. Reset the room and assign new host
+    // 2. Clear all chats (Lobby and In-Game)
+    final guesses = await roomRef.collection('guesses').get();
+    for (var d in guesses.docs) batch.delete(d.reference);
+    
+    final lobbyGuesses = await roomRef.collection('lobby_guesses').get();
+    for (var d in lobbyGuesses.docs) batch.delete(d.reference);
+
+    // 3. Reset the room and assign new host
     batch.update(roomRef, {
       'status': 'waiting',
       'hostId': newHostId,
@@ -579,9 +645,17 @@ class GameService {
       'isSkipped': false,
       'isPaused': false,
       'startCountdown': 0,
+      'skipCount': 0, // Reset skip count
     });
 
     await batch.commit();
+  }
+
+  Future<void> randomizeLobbyAvatar(String roomId, String userId) async {
+    final newConfig = AvatarConfig.random().toMap();
+    await _db.collection('rooms').doc(roomId).collection('players').doc(userId).update({
+      'avatarConfig': newConfig,
+    });
   }
 
   Future<void> updateStartCountdown(String roomId, int value) async {

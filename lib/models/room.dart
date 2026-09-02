@@ -26,6 +26,8 @@ class Room {
   final bool isPartyMode;
   final bool isPaused; // ⏸️ New field
   final bool forceLockVisibility;
+  final int skipCount; // 🆕 Track total skips used in match
+  final List<Map<String, dynamic>> songQueue; // 🆕 Persistent queue
 
   const Room({
     required this.id,
@@ -51,6 +53,8 @@ class Room {
     this.isPartyMode = false,
     this.isPaused = false,
     this.forceLockVisibility = false,
+    this.skipCount = 0,
+    this.songQueue = const [],
   });
 
   factory Room.fromMap(String id, Map<String, dynamic> d) {
@@ -81,6 +85,8 @@ class Room {
       isPartyMode: d['isPartyMode'] ?? false,
       isPaused: d['isPaused'] ?? false,
       forceLockVisibility: d['forceLockVisibility'] ?? false,
+      skipCount: (d['skipCount'] as num?)?.toInt() ?? 0,
+      songQueue: List<Map<String, dynamic>>.from(d['songQueue'] ?? []),
     );
   }
 
@@ -107,7 +113,18 @@ class Room {
     'isPartyMode': isPartyMode,
     'isPaused': isPaused,
     'forceLockVisibility': forceLockVisibility,
+    'skipCount': skipCount,
+    'songQueue': songQueue,
   };
+
+  int get maxSkips {
+    if (totalRounds <= 7) return 1;
+    if (totalRounds <= 14) return 2;
+    if (totalRounds <= 20) return 3;
+    return 4;
+  }
+
+  bool get canSkip => skipCount < maxSkips;
 
   Room copyWith({
     RoomStatus? status,
@@ -131,6 +148,7 @@ class Room {
     bool? isPartyMode,
     bool? isPaused,
     bool? forceLockVisibility,
+    int? skipCount,
   }) {
     return Room(
       id:              id,
@@ -156,6 +174,7 @@ class Room {
       isPartyMode:     isPartyMode     ?? this.isPartyMode,
       isPaused:        isPaused        ?? this.isPaused,
       forceLockVisibility: forceLockVisibility ?? this.forceLockVisibility,
+      skipCount:       skipCount       ?? this.skipCount,
     );
   }
 }
